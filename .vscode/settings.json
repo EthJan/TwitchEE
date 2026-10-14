@@ -1,3 +1,6 @@
 {
-    "scm.compactFolders": false
+    "scm.compactFolders": false,
+    "js/ts.tsdk.path": "node_modules/typescript/lib",
+    "typscript.enablePromptUseWorkspaceTsdk": true
+    
 }
