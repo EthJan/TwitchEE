@@ -1,16 +1,20 @@
 import { z } from 'zod';
-import { baseProcedure, createTRPCRouter } from '../init';
-import { TRPCError } from '@trpc/server';
+import { baseProcedure, createTRPCRouter, protectedProcedure } from '../init';
 import { getTwitchUserByLogin, getTwitchVideos } from '@/lib/twitch/client';
-
+import { trpc } from '../client';
+import { TRPCClientError } from '@trpc/client';
+import { TRPCError } from '@trpc/server';
+import { DayButton } from 'react-day-picker';
+ 
 export const appRouter = createTRPCRouter({
-  hello: baseProcedure
+  hello: protectedProcedure
     .input(
       z.object({
         text: z.string(),
       }),
     )
     .query((opts) => { 
+      console.log({dbUser: opts.ctx.user});
       return {
         greeting: `hello ${opts.input.text}`,
       };
