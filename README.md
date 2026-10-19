@@ -8,6 +8,17 @@ Install the project dependencies:
 npm install
 ```
 
+Create `.env.local` from `.env.example` and replace the placeholder with your Clerk publishable key. You can find it in the [Clerk Dashboard API Keys](https://dashboard.clerk.com/last-active?path=api-keys). The variable must be named `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`.
+
+For Twitch API access, add the client ID and client secret from your Twitch developer console to `.env.local`:
+
+```bash
+TWITCH_CLIENT_ID=your_twitch_client_id
+TWITCH_CLIENT_SECRET=your_twitch_client_secret
+```
+
+The backend uses Twitch app access tokens and keeps the client secret server-side. Videos are available through the `twitch.videos` tRPC procedure. For example, query videos by login with `{ userLogin: "twitch" }`, or by `userId`/`gameId`. The response includes Twitch's `data` array and pagination cursor.
+
 Then, run the development server:
 
 ```bash
