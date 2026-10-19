@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
+import Link from "next/link";
 import { trpc } from "@/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,9 +25,19 @@ function formatDate(date: string) {
     }).format(new Date(date));
 }
 
+function formatFollowedDate(date: string) {
+    return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(date));
+}
+
 export const PageClient = () => {
+    const { isSignedIn } = useAuth();
     const [login, setLogin] = useState("");
     const [submittedLogin, setSubmittedLogin] = useState("");
+    const followedChannelsQuery = trpc.twitch.followedChannels.useQuery(
+        { first: 20 },
+        { enabled: isSignedIn === true, retry: false },
+    );
+    const isTwitchConnected = followedChannelsQuery.isSuccess;
     const videosQuery = trpc.twitch.videos.useQuery(
         { userLogin: submittedLogin, first: 20, sort: "time" },
         { enabled: Boolean(submittedLogin) },
@@ -51,6 +63,77 @@ export const PageClient = () => {
                         This page is connected to Twitch through the server-side Helix client.
                     </p>
                 </div>
+
+                <section className="mb-12 border border-zinc-800 bg-zinc-900/70 p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                            <p className="text-sm font-medium uppercase tracking-[0.2em] text-orange-400">
+                                Your follows
+                            </p>
+                            <h2 className="mt-2 text-2xl font-semibold">Channels you follow on Twitch</h2>
+                        </div>
+                        {isSignedIn && isTwitchConnected ? (
+                            <span className="border border-emerald-500/50 px-4 py-2 text-sm font-medium text-emerald-400">
+                                Twitch connected
+                            </span>
+                        ) : isSignedIn ? (
+                            <a
+                                className="border border-orange-500 px-4 py-2 text-sm font-medium text-orange-400 hover:bg-orange-500 hover:text-black"
+                                href="/api/twitch/connect"
+                            >
+                                Connect Twitch
+                            </a>
+                        ) : (
+                            <Link
+                                className="border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:border-orange-500 hover:text-orange-400"
+                                href="/sign-in"
+                            >
+                                Sign in to connect
+                            </Link>
+                        )}
+                    </div>
+
+                    {!isSignedIn && (
+                        <p className="mt-5 text-sm text-zinc-400">
+                            Sign in first, then connect your Twitch account to load your followed channels.
+                        </p>
+                    )}
+
+                    {isSignedIn && followedChannelsQuery.isLoading && (
+                        <p className="mt-5 text-sm text-zinc-400">Loading your followed channels...</p>
+                    )}
+
+                    {isSignedIn && followedChannelsQuery.isError && (
+                        <p className="mt-5 text-sm text-zinc-400">
+                            {followedChannelsQuery.error.message.includes("Connect your Twitch")
+                                ? "Connect Twitch above to load your followed channels."
+                                : followedChannelsQuery.error.message}
+                        </p>
+                    )}
+
+                    {followedChannelsQuery.data && followedChannelsQuery.data.data.length === 0 && (
+                        <p className="mt-5 text-sm text-zinc-400">You are not following any channels yet.</p>
+                    )}
+
+                    {followedChannelsQuery.data && followedChannelsQuery.data.data.length > 0 && (
+                        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            {followedChannelsQuery.data.data.map((channel) => (
+                                <a
+                                    className="border border-zinc-800 p-4 hover:border-orange-500"
+                                    href={`https://www.twitch.tv/${encodeURIComponent(channel.broadcaster_login)}`}
+                                    key={channel.broadcaster_id}
+                                    rel="noreferrer"
+                                    target="_blank"
+                                >
+                                    <p className="font-medium text-zinc-100">{channel.broadcaster_name}</p>
+                                    <p className="mt-1 text-sm text-zinc-500">
+                                        Followed {formatFollowedDate(channel.followed_at)}
+                                    </p>
+                                </a>
+                            ))}
+                        </div>
+                    )}
+                </section>
 
                 <form className="mb-10 flex max-w-xl gap-3" onSubmit={handleSubmit}>
                     <Input

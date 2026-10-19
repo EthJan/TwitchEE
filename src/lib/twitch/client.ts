@@ -6,6 +6,8 @@ const twitchOAuthUrl = 'https://id.twitch.tv/oauth2/token';
 type TwitchTokenResponse = {
   access_token: string;
   expires_in: number;
+  refresh_token?: string;
+  scope?: string[];
   token_type: string;
 };
 
@@ -33,6 +35,13 @@ export type TwitchVideo = {
   language: string;
   type: string;
   duration: string;
+};
+
+export type TwitchFollowedChannel = {
+  broadcaster_id: string;
+  broadcaster_login: string;
+  broadcaster_name: string;
+  followed_at: string;
 };
 
 type TwitchResponse<T> = {
@@ -113,6 +122,91 @@ export async function getTwitchUserByLogin(login: string) {
   const params = new URLSearchParams({ login });
   const response = await twitchRequest<TwitchResponse<TwitchUser>>('/users', params);
   return response.data[0] ?? null;
+}
+
+export async function exchangeTwitchAuthorizationCode(code: string, redirectUri: string) {
+  const { clientId, clientSecret } = getTwitchCredentials();
+  const response = await fetch(twitchOAuthUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Twitch OAuth exchange failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as TwitchTokenResponse & { refresh_token: string };
+}
+
+export async function getTwitchAuthenticatedUser(accessToken: string) {
+  const { clientId } = getTwitchCredentials();
+  const response = await fetch(`${twitchApiBaseUrl}/users`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Client-Id": clientId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Twitch identity request failed with status ${response.status}`);
+  }
+
+  const result = (await response.json()) as TwitchResponse<TwitchUser>;
+  const user = result.data[0];
+  if (!user) throw new Error("Twitch did not return an authenticated user");
+  return user;
+}
+
+export async function refreshTwitchAccessToken(refreshToken: string) {
+  const { clientId, clientSecret } = getTwitchCredentials();
+  const response = await fetch(twitchOAuthUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Twitch token refresh failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as TwitchTokenResponse & { refresh_token: string };
+}
+
+export async function getTwitchFollowedChannels(options: {
+  accessToken: string;
+  userId: string;
+  first?: number;
+  after?: string;
+}) {
+  const { clientId } = getTwitchCredentials();
+  const params = new URLSearchParams({ user_id: options.userId });
+  if (options.first) params.set("first", String(options.first));
+  if (options.after) params.set("after", options.after);
+
+  const response = await fetch(`${twitchApiBaseUrl}/channels/followed?${params}`, {
+    headers: {
+      Authorization: `Bearer ${options.accessToken}`,
+      "Client-Id": clientId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Twitch followed channels request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as TwitchResponse<TwitchFollowedChannel>;
 }
 
 export async function getTwitchVideos(options: {
