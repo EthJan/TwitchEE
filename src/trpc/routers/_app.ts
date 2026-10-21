@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { twitchAccounts } from '@/db/schema';
 import {
   getTwitchFollowedChannels,
+  getTwitchFollowedStreams,
   getTwitchUserByLogin,
   getTwitchVideos,
   refreshTwitchAccessToken,
@@ -16,6 +17,43 @@ import { z } from 'zod';
 export const appRouter = createTRPCRouter({
   categories: categoriesRouter,
   twitch: createTRPCRouter({
+    followedStreams: protectedProcedure
+      .input(z.object({ first: z.number().int().min(1).max(100).optional(), after: z.string().min(1).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const [account] = await db.select().from(twitchAccounts).where(eq(twitchAccounts.userId, ctx.user.id));
+        if (!account) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Connect your Twitch account to view live channels.',
+          });
+        }
+
+        let accessToken = decryptTwitchToken(account.accessToken);
+        if (account.expiresAt.getTime() <= Date.now() + 60_000) {
+          const refreshedToken = await refreshTwitchAccessToken(decryptTwitchToken(account.refreshToken));
+          accessToken = refreshedToken.access_token;
+          await db.update(twitchAccounts).set({
+            accessToken: encryptTwitchToken(refreshedToken.access_token),
+            refreshToken: encryptTwitchToken(refreshedToken.refresh_token),
+            expiresAt: new Date(Date.now() + refreshedToken.expires_in * 1000),
+            updatedAt: new Date(),
+          }).where(eq(twitchAccounts.id, account.id));
+        }
+
+        try {
+          return await getTwitchFollowedStreams({
+            accessToken,
+            userId: account.twitchUserId,
+            first: input?.first,
+            after: input?.after,
+          });
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : 'Twitch followed streams request failed',
+          });
+        }
+      }),
     followedChannels: protectedProcedure
       .input(z.object({ first: z.number().int().min(1).max(100).optional(), after: z.string().min(1).optional() }).optional())
       .query(async ({ ctx, input }) => {
