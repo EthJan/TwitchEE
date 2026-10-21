@@ -11,6 +11,7 @@ import {
 import { decryptTwitchToken, encryptTwitchToken } from '@/lib/twitch/token-crypto';
 import { eq } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
+import { z } from 'zod';
  
 export const appRouter = createTRPCRouter({
   categories: categoriesRouter,
