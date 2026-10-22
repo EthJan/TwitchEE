@@ -44,6 +44,23 @@ export type TwitchFollowedChannel = {
   followed_at: string;
 };
 
+export type TwitchStream = {
+  id: string;
+  user_id: string;
+  user_login: string;
+  user_name: string;
+  game_id: string;
+  game_name: string;
+  type: 'live' | '';
+  title: string;
+  viewer_count: number;
+  started_at: string;
+  language: string;
+  thumbnail_url: string;
+  tags: string[];
+  is_mature: boolean;
+};
+
 type TwitchResponse<T> = {
   data: T[];
   pagination: {
@@ -207,6 +224,44 @@ export async function getTwitchFollowedChannels(options: {
   }
 
   return (await response.json()) as TwitchResponse<TwitchFollowedChannel>;
+}
+
+export async function getTwitchFollowedStreams(options: {
+  accessToken: string;
+  userId: string;
+  first?: number;
+  after?: string;
+}) {
+  const { clientId } = getTwitchCredentials();
+  const params = new URLSearchParams({ user_id: options.userId });
+  if (options.first) params.set("first", String(options.first));
+  if (options.after) params.set("after", options.after);
+
+  const response = await fetch(`${twitchApiBaseUrl}/streams/followed?${params}`, {
+    headers: {
+      Authorization: `Bearer ${options.accessToken}`,
+      "Client-Id": clientId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Twitch followed streams request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as TwitchResponse<TwitchStream>;
+}
+
+export async function getTwitchStreams(options: {
+  first?: number;
+  language?: string;
+  gameId?: string;
+}) {
+  const params = new URLSearchParams();
+  if (options.first) params.set("first", String(options.first));
+  if (options.language) params.set("language", options.language);
+  if (options.gameId) params.set("game_id", options.gameId);
+
+  return twitchRequest<TwitchResponse<TwitchStream>>('/streams', params);
 }
 
 export async function getTwitchVideos(options: {
