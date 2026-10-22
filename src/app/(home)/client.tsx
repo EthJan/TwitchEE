@@ -129,10 +129,8 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
                             {liveStreamsQuery.data.data.map((stream) => (
                                 <a
                                     className="group overflow-hidden border border-slate-200 bg-white hover:border-slate-400"
-                                    href={`https://www.twitch.tv/${encodeURIComponent(stream.user_login)}`}
+                                    href={`/watch/stream/${encodeURIComponent(stream.user_login)}`}
                                     key={stream.id}
-                                    rel="noreferrer"
-                                    target="_blank"
                                 >
                                     <div className="relative aspect-video overflow-hidden bg-slate-100">
                                         <img
@@ -192,10 +190,8 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
                                 {videosQuery.data.data.map((video) => (
                                     <a
                                         className="group overflow-hidden border border-slate-200 hover:border-slate-400"
-                                        href={video.url}
+                                        href={`/watch/video/${encodeURIComponent(video.id)}`}
                                         key={video.id}
-                                        rel="noreferrer"
-                                        target="_blank"
                                     >
                                         <img
                                             alt={video.title}
