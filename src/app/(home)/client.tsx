@@ -14,6 +14,12 @@ function formatDurationSince(date: string) {
     return `${Math.floor(elapsedMinutes / 60)}h`;
 }
 
+function getThumbnailUrl(url: string) {
+    return url
+        .replace(/%?\{width\}/g, "640")
+        .replace(/%?\{height\}/g, "360");
+}
+
 interface TwitchHomeProps {
     searchTerm?: string;
     subscriptions?: boolean;
@@ -132,7 +138,7 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
                                         <img
                                             alt={`${stream.user_name} live on Twitch`}
                                             className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                                            src={stream.thumbnail_url.replace("%{width}", "640").replace("%{height}", "360")}
+                                            src={getThumbnailUrl(stream.thumbnail_url)}
                                         />
                                         <span className="absolute left-2 top-2 bg-red-600 px-2 py-1 text-xs font-semibold text-white">
                                             LIVE
@@ -194,7 +200,7 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
                                         <img
                                             alt={video.title}
                                             className="aspect-video w-full object-cover"
-                                            src={video.thumbnail_url.replace("%{width}", "640").replace("%{height}", "360")}
+                                            src={getThumbnailUrl(video.thumbnail_url)}
                                         />
                                         <div className="p-4">
                                             <h3 className="line-clamp-2 font-medium group-hover:text-slate-600">{video.title}</h3>
