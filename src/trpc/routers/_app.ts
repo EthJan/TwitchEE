@@ -5,6 +5,7 @@ import { twitchAccounts } from '@/db/schema';
 import {
   getTwitchFollowedChannels,
   getTwitchFollowedStreams,
+  getTwitchStreams,
   getTwitchUserByLogin,
   getTwitchVideos,
   refreshTwitchAccessToken,
@@ -17,6 +18,22 @@ import { z } from 'zod';
 export const appRouter = createTRPCRouter({
   categories: categoriesRouter,
   twitch: createTRPCRouter({
+    popularStreams: baseProcedure
+      .input(z.object({ first: z.number().int().min(1).max(100).optional(), language: z.string().length(2).optional(), gameId: z.string().min(1).optional() }).optional())
+      .query(async ({ input }) => {
+        try {
+          return await getTwitchStreams({
+            first: input?.first,
+            language: input?.language,
+            gameId: input?.gameId,
+          });
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : 'Twitch streams request failed',
+          });
+        }
+      }),
     followedStreams: protectedProcedure
       .input(z.object({ first: z.number().int().min(1).max(100).optional(), after: z.string().min(1).optional() }).optional())
       .query(async ({ ctx, input }) => {

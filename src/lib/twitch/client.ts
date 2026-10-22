@@ -251,6 +251,19 @@ export async function getTwitchFollowedStreams(options: {
   return (await response.json()) as TwitchResponse<TwitchStream>;
 }
 
+export async function getTwitchStreams(options: {
+  first?: number;
+  language?: string;
+  gameId?: string;
+}) {
+  const params = new URLSearchParams();
+  if (options.first) params.set("first", String(options.first));
+  if (options.language) params.set("language", options.language);
+  if (options.gameId) params.set("game_id", options.gameId);
+
+  return twitchRequest<TwitchResponse<TwitchStream>>('/streams', params);
+}
+
 export async function getTwitchVideos(options: {
   userId?: string;
   gameId?: string;

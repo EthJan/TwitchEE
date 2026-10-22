@@ -16,19 +16,28 @@ function formatDurationSince(date: string) {
 
 interface TwitchHomeProps {
     searchTerm?: string;
+    subscriptions?: boolean;
 }
 
-export const PageClient = ({ searchTerm }: TwitchHomeProps) => {
+export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProps) => {
     const { isSignedIn } = useAuth();
     const followedChannelsQuery = trpc.twitch.followedChannels.useQuery(
         { first: 20 },
-        { enabled: isSignedIn === true, retry: false },
+        { enabled: isSignedIn === true && subscriptions, retry: false },
     );
     const followedStreamsQuery = trpc.twitch.followedStreams.useQuery(
         { first: 20 },
         {
-            enabled: isSignedIn === true,
+            enabled: isSignedIn === true && subscriptions,
             retry: false,
+            refetchInterval: 30_000,
+            refetchOnWindowFocus: true,
+        },
+    );
+    const popularStreamsQuery = trpc.twitch.popularStreams.useQuery(
+        { first: 20, language: "en" },
+        {
+            enabled: !subscriptions,
             refetchInterval: 30_000,
             refetchOnWindowFocus: true,
         },
@@ -37,7 +46,8 @@ export const PageClient = ({ searchTerm }: TwitchHomeProps) => {
         { userLogin: searchTerm ?? "", first: 20, sort: "time" },
         { enabled: Boolean(searchTerm) },
     );
-    const isTwitchConnected = followedChannelsQuery.isSuccess;
+    const liveStreamsQuery = subscriptions ? followedStreamsQuery : popularStreamsQuery;
+    const isTwitchConnected = subscriptions && followedChannelsQuery.isSuccess;
 
     return (
         <section className="border-b border-slate-200 bg-white text-slate-950">
@@ -47,64 +57,70 @@ export const PageClient = ({ searchTerm }: TwitchHomeProps) => {
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                             Twitch
                         </p>
-                        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Live and followed</h1>
+                        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+                            {subscriptions ? "Live from your subscriptions" : "Popular live streams"}
+                        </h1>
                     </div>
-                    {isSignedIn && isTwitchConnected ? (
+                    {subscriptions && isSignedIn && isTwitchConnected ? (
                         <span className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
                             Twitch connected
                         </span>
-                    ) : isSignedIn ? (
+                    ) : subscriptions && isSignedIn ? (
                         <a
                             className="bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
                             href="/api/twitch/connect"
                         >
                             Connect Twitch
                         </a>
-                    ) : (
+                    ) : subscriptions ? (
                         <Link
                             className="border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-950"
                             href="/sign-in"
                         >
                             Sign in to connect
                         </Link>
-                    )}
+                    ) : null}
                 </div>
 
-                {!isSignedIn && (
+                {subscriptions && !isSignedIn && (
                     <p className="mt-5 text-sm text-slate-500">
                         Sign in and connect Twitch to see live channels from your follows.
                     </p>
                 )}
 
-                {isSignedIn && followedStreamsQuery.isLoading && (
-                    <p className="mt-8 text-sm text-slate-500">Checking your followed channels for live streams...</p>
-                )}
-
-                {isSignedIn && followedStreamsQuery.isError && (
+                {liveStreamsQuery.isLoading && (
                     <p className="mt-8 text-sm text-slate-500">
-                        {followedStreamsQuery.error.message.includes("Connect your Twitch")
-                            ? "Connect Twitch above to see who is live."
-                            : followedStreamsQuery.error.message}
+                        {subscriptions ? "Checking your followed channels for live streams..." : "Loading popular live streams..."}
                     </p>
                 )}
 
-                {followedStreamsQuery.data && followedStreamsQuery.data.data.length === 0 && (
+                {liveStreamsQuery.isError && (
+                    <p className="mt-8 text-sm text-slate-500">
+                        {subscriptions && liveStreamsQuery.error.message.includes("Connect your Twitch")
+                            ? "Connect Twitch above to see who is live."
+                            : liveStreamsQuery.error.message}
+                    </p>
+                )}
+
+                {liveStreamsQuery.data && liveStreamsQuery.data.data.length === 0 && (
                     <div className="mt-8 border border-slate-200 bg-slate-50 px-5 py-6">
-                        <p className="font-medium">Nobody you follow is live right now.</p>
-                        <p className="mt-1 text-sm text-slate-500">Live channels will appear here automatically.</p>
+                        <p className="font-medium">
+                            {subscriptions ? "Nobody you follow is live right now." : "No live streams are available right now."}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">This section updates automatically.</p>
                     </div>
                 )}
 
-                {followedStreamsQuery.data && followedStreamsQuery.data.data.length > 0 && (
+                {liveStreamsQuery.data && liveStreamsQuery.data.data.length > 0 && (
                     <div className="mt-8">
                         <div className="mb-4 flex items-center justify-between">
                             <h2 className="text-lg font-semibold">Live now</h2>
                             <span className="text-sm text-slate-500">
-                                {followedStreamsQuery.data.data.length} channel{followedStreamsQuery.data.data.length === 1 ? "" : "s"}
+                                {liveStreamsQuery.data.data.length} channel{liveStreamsQuery.data.data.length === 1 ? "" : "s"}
                             </span>
                         </div>
                         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                            {followedStreamsQuery.data.data.map((stream) => (
+                            {liveStreamsQuery.data.data.map((stream) => (
                                 <a
                                     className="group overflow-hidden border border-slate-200 bg-white hover:border-slate-400"
                                     href={`https://www.twitch.tv/${encodeURIComponent(stream.user_login)}`}
@@ -135,7 +151,7 @@ export const PageClient = ({ searchTerm }: TwitchHomeProps) => {
                     </div>
                 )}
 
-                {followedChannelsQuery.data && followedChannelsQuery.data.data.length > 0 && (
+                {subscriptions && followedChannelsQuery.data && followedChannelsQuery.data.data.length > 0 && (
                     <div className="mt-10 border-t border-slate-200 pt-7">
                         <h2 className="text-lg font-semibold">Your followed channels</h2>
                         <div className="mt-4 flex flex-wrap gap-3">
