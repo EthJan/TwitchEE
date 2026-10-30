@@ -17,6 +17,7 @@ TWITCH_CLIENT_ID=your_twitch_client_id
 TWITCH_CLIENT_SECRET=your_twitch_client_secret
 TWITCH_REDIRECT_URI=http://localhost:3000/api/twitch/callback
 TWITCH_TOKEN_ENCRYPTION_KEY=generate_with_openssl_rand_base64_32
+TWITCH_EMBED_PARENT=localhost
 ```
 
 Generate the token encryption key with `openssl rand -base64 32`. Add your Twitch redirect URL `http://localhost:3000/api/twitch/callback` to the Twitch developer console. The OAuth flow requests the `user:read:follows` scope, stores encrypted Twitch tokens in Postgres, and exposes followed channels through the signed-in user's home page.
@@ -29,6 +30,8 @@ npx drizzle-kit push
 ```
 
 The backend uses Twitch app access tokens for public video queries and user access tokens for followed channels. Videos are available through the `twitch.videos` tRPC procedure. For example, query videos by login with `{ userLogin: "twitch" }`, or by `userId`/`gameId`.
+
+Live stream and video cards open an in-app viewer using the Twitch embedded player. Set `TWITCH_EMBED_PARENT` to the production hostname when deploying.
 
 Then, run the development server:
 
