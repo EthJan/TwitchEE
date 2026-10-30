@@ -28,6 +28,9 @@ export default async function ViewerPage({ params }: ViewerPageProps) {
     }
 
     const embedUrl = `https://player.twitch.tv/?${embedParams.toString()}`;
+    const chatUrl = type === "stream"
+        ? `https://www.twitch.tv/embed/${encodeURIComponent(id)}/chat?${new URLSearchParams({ parent }).toString()}`
+        : null;
     const title = type === "stream" ? `Watching ${id}` : "Watching Twitch video";
 
     return (
@@ -36,16 +39,28 @@ export default async function ViewerPage({ params }: ViewerPageProps) {
                 <Link className="mb-5 inline-flex text-sm font-medium text-slate-600 hover:text-slate-950" href="/">
                     Back to home
                 </Link>
-                <div className="overflow-hidden border border-slate-200 bg-black shadow-sm">
-                    <div className="aspect-video w-full">
-                        <iframe
-                            allow="autoplay; fullscreen"
-                            allowFullScreen
-                            className="h-full w-full"
-                            title={title}
-                            src={embedUrl}
-                        />
+                <div className={chatUrl ? "grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]" : undefined}>
+                    <div className="overflow-hidden border border-slate-200 bg-black shadow-sm">
+                        <div className="aspect-video w-full">
+                            <iframe
+                                allow="autoplay; fullscreen"
+                                allowFullScreen
+                                className="h-full w-full"
+                                title={title}
+                                src={embedUrl}
+                            />
+                        </div>
                     </div>
+                    {chatUrl && (
+                        <aside className="flex min-h-[520px] flex-col overflow-hidden border border-slate-200 bg-white shadow-sm lg:min-h-0">
+                            <h2 className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-950">Live chat</h2>
+                            <iframe
+                                className="min-h-0 flex-1"
+                                title={`${id} live chat`}
+                                src={chatUrl}
+                            />
+                        </aside>
+                    )}
                 </div>
                 <h1 className="mt-5 text-xl font-semibold">{title}</h1>
                 <p className="mt-1 text-sm text-slate-500">Playing through the Twitch embedded player.</p>
