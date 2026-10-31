@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -30,3 +30,10 @@ export const categories = pgTable("categories", {
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull()
 }, (t) => [uniqueIndex("categories_name_unique").on(t.name)]);
+
+export const twitchRecommendationRecords = pgTable("twitch_recommendation_records", {
+    dataset: text("dataset").notNull(),
+    recordKey: text("record_key").notNull(),
+    collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+}, (t) => [primaryKey({ columns: [t.dataset, t.recordKey, t.collectedAt] })]);

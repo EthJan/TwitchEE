@@ -40,8 +40,8 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
             refetchOnWindowFocus: true,
         },
     );
-    const popularStreamsQuery = trpc.twitch.popularStreams.useQuery(
-        { first: 20, language: "en" },
+    const recommendationStreamsQuery = trpc.twitch.recommendationStreams.useQuery(
+        { first: 50 },
         {
             enabled: !subscriptions,
             refetchInterval: 30_000,
@@ -52,7 +52,7 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
         { userLogin: searchTerm ?? "", first: 20, sort: "time" },
         { enabled: Boolean(searchTerm) },
     );
-    const liveStreamsQuery = subscriptions ? followedStreamsQuery : popularStreamsQuery;
+    const liveStreamsQuery = subscriptions ? followedStreamsQuery : recommendationStreamsQuery;
     const isTwitchConnected = subscriptions && followedChannelsQuery.isSuccess;
 
     return (
@@ -64,7 +64,7 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
                             Twitch
                         </p>
                         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-                            {subscriptions ? "Live from your subscriptions" : "Popular live streams"}
+                            {subscriptions ? "Live from your subscriptions" : "Recommended live streams"}
                         </h1>
                     </div>
                     {subscriptions && isSignedIn && isTwitchConnected ? (
@@ -96,7 +96,7 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
 
                 {liveStreamsQuery.isLoading && (
                     <p className="mt-8 text-sm text-slate-500">
-                        {subscriptions ? "Checking your followed channels for live streams..." : "Loading popular live streams..."}
+                        {subscriptions ? "Checking your followed channels for live streams..." : "Loading recommended live streams..."}
                     </p>
                 )}
 
