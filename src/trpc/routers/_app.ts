@@ -56,10 +56,12 @@ export const appRouter = createTRPCRouter({
 
         const data = result.rows.map((row) => {
           const payload = row.payload as Record<string, unknown>;
+          const userLogin = String(payload.user_login ?? '');
+          const thumbnailUrl = String(payload.thumbnail_url ?? '');
           return {
             id: String(payload.id),
             user_id: String(payload.user_id),
-            user_login: String(payload.user_login ?? ''),
+            user_login: userLogin,
             user_name: String(payload.user_name ?? ''),
             game_id: String(payload.game_id ?? ''),
             game_name: String(payload.game_name ?? ''),
@@ -68,7 +70,7 @@ export const appRouter = createTRPCRouter({
             viewer_count: Number(payload.viewer_count ?? 0),
             started_at: String(payload.started_at ?? ''),
             language: String(payload.language ?? ''),
-            thumbnail_url: String(payload.thumbnail_url ?? ''),
+            thumbnail_url: thumbnailUrl || `https://static-cdn.jtvnw.net/previews-ttv/live_user_${encodeURIComponent(userLogin)}-640x360.jpg`,
             tags: Array.isArray(payload.tags) ? payload.tags.map(String) : [],
             is_mature: Boolean(payload.is_mature),
           };
