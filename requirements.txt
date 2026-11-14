@@ -1,0 +1,14 @@
+# Twitch recommendation notebooks
+numpy==2.2.1
+pandas==2.2.3
+requests==2.32.3
+python-dotenv==1.0.1
+psycopg[binary]==3.2.3
+scikit-learn==1.6.0
+torch==2.6.0
+
+# Notebook execution and kernel support
+nbformat==5.10.4
+nbclient==0.10.2
+ipykernel==6.29.5
+jupyter-client==8.6.3

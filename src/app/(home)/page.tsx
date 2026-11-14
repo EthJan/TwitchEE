@@ -15,7 +15,7 @@ interface PageProps {
 const Page = async ({ searchParams }: PageProps) => {
   const { categoryId, search } = await searchParams;
   void trpc.categories.getMany.prefetch( )
-  void trpc.twitch.popularStreams.prefetch({ first: 20, language: "en" });
+  void trpc.twitch.recommendationStreams.prefetch({ first: 50 });
   return (
     <HydrateClient>
       <TwitchHome searchTerm={search} />
