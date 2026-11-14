@@ -1,15 +1,18 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { trpc } from "@/trpc/client";
 
 function formatDate(date: string) {
-    return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(date));
+    return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(date));
 }
 
-function formatDurationSince(date: string) {
-    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / 60000));
+function formatDurationSince(date: string, now: number | null) {
+    if (now === null) return null;
+
+    const elapsedMinutes = Math.max(0, Math.floor((now - new Date(date).getTime()) / 60000));
     if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
     return `${Math.floor(elapsedMinutes / 60)}h`;
 }
@@ -27,6 +30,15 @@ interface TwitchHomeProps {
 
 export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProps) => {
     const { isSignedIn } = useAuth();
+    const [now, setNow] = useState<number | null>(null);
+
+    useEffect(() => {
+        const updateNow = () => setNow(Date.now());
+        updateNow();
+        const interval = window.setInterval(updateNow, 30_000);
+        return () => window.clearInterval(interval);
+    }, []);
+
     const followedChannelsQuery = trpc.twitch.followedChannels.useQuery(
         { first: 20 },
         { enabled: isSignedIn === true && subscriptions, retry: false },
@@ -146,7 +158,8 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
                                         <h3 className="line-clamp-2 font-medium group-hover:text-slate-600">{stream.title}</h3>
                                         <p className="mt-2 text-sm text-slate-600">{stream.user_name} · {stream.game_name || "Just Chatting"}</p>
                                         <p className="mt-1 text-xs text-slate-500">
-                                            {stream.viewer_count.toLocaleString()} viewers · live {formatDurationSince(stream.started_at)}
+                                            {stream.viewer_count.toLocaleString("en-US")} viewers
+                                            {now !== null && ` · live ${formatDurationSince(stream.started_at, now)}`}
                                         </p>
                                     </div>
                                 </a>
