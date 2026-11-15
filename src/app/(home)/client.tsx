@@ -3,6 +3,7 @@
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { trpc } from "@/trpc/client";
 
 function formatDate(date: string) {
@@ -145,10 +146,13 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
                                     key={stream.id}
                                 >
                                     <div className="relative aspect-video overflow-hidden bg-slate-100">
-                                        <img
+                                        <Image
                                             alt={`${stream.user_name} live on Twitch`}
                                             className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                                            height={360}
+                                            sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                                             src={getThumbnailUrl(stream.thumbnail_url)}
+                                            width={640}
                                         />
                                         <span className="absolute left-2 top-2 bg-red-600 px-2 py-1 text-xs font-semibold text-white">
                                             LIVE
@@ -206,10 +210,13 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
                                         href={`/watch/video/${encodeURIComponent(video.id)}`}
                                         key={video.id}
                                     >
-                                        <img
+                                        <Image
                                             alt={video.title}
                                             className="aspect-video w-full object-cover"
+                                            height={360}
+                                            sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                                             src={getThumbnailUrl(video.thumbnail_url)}
+                                            width={640}
                                         />
                                         <div className="p-4">
                                             <h3 className="line-clamp-2 font-medium group-hover:text-slate-600">{video.title}</h3>
