@@ -5,13 +5,12 @@ import { eq } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { users } from '@/db/schema';
-import { EventType } from 'svix/dist/api/event_type';
 
 export async function POST(req: Request) {
   const signingSecret = process.env.CLERK_SIGNING_SECRET;
 
   if (!signingSecret) {
-    return new Error('Error: Please add SIGNING_SECRET')
+    return new Response('Error: Please add SIGNING_SECRET', { status: 500 });
   }
 
   const wh = new Webhook(signingSecret)
@@ -51,7 +50,7 @@ export async function POST(req: Request) {
     await db.insert(users).values({
         // Todo: Add email login
         clerkId: data.id, 
-        name: '${data.first_name} ${data.last_name}',
+        name: `${data.first_name} ${data.last_name}`,
         imageUrl: data.image_url,
     })
  }
@@ -71,7 +70,7 @@ export async function POST(req: Request) {
     const data = event.data
     await db.update(users)
     .set({
-        name: '${data.first_name} ${data.last_name}',
+        name: `${data.first_name} ${data.last_name}`,
         imageUrl: data.image_url,
     }).where(eq(users.clerkId, data.id))
  }

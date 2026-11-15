@@ -1,4 +1,4 @@
-import { Sidebar, SidebarContent, SidebarSeparator } from "@/components/ui/sidebar"
+import { Sidebar, SidebarContent } from "@/components/ui/sidebar"
 import { MainSection } from "./main_section"
 import { Separator } from "@/components/ui/separator"
 import { PersonalSection } from "./personal_section"
