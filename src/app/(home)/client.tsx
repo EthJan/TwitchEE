@@ -32,6 +32,8 @@ interface TwitchHomeProps {
 export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProps) => {
     const { isSignedIn } = useAuth();
     const [now, setNow] = useState<number | null>(null);
+    const gatherPublicData = trpc.twitch.gatherPublicData.useMutation();
+    const trpcUtils = trpc.useUtils();
 
     useEffect(() => {
         const updateNow = () => setNow(Date.now());
@@ -39,6 +41,14 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
         const interval = window.setInterval(updateNow, 30_000);
         return () => window.clearInterval(interval);
     }, []);
+
+    useEffect(() => {
+        if (isSignedIn === true && !gatherPublicData.isPending) {
+            gatherPublicData.mutate(undefined, {
+                onSuccess: () => trpcUtils.twitch.recommendationStreams.invalidate(),
+            });
+        }
+    }, [isSignedIn, trpcUtils.twitch.recommendationStreams, gatherPublicData]);
 
     const followedChannelsQuery = trpc.twitch.followedChannels.useQuery(
         { first: 20 },

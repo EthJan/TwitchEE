@@ -31,6 +31,8 @@ npx drizzle-kit push
 
 The backend uses Twitch app access tokens for public video queries and user access tokens for followed channels. Videos are available through the `twitch.videos` tRPC procedure. For example, query videos by login with `{ userLogin: "twitch" }`, or by `userId`/`gameId`.
 
+Public stream snapshots are gathered by the scheduled `/api/data-gather` route every five minutes on Vercel. Set `CRON_SECRET` so the route only accepts Vercel Cron requests. The app also refreshes this public snapshot when a Clerk session becomes signed in; this does not require Twitch user credentials. Streams not observed for ten minutes are removed, so ended streams do not remain in recommendations.
+
 Live stream and video cards open an in-app viewer using the Twitch embedded player. Set `TWITCH_EMBED_PARENT` to the production hostname when deploying.
 
 Then, run the development server:
