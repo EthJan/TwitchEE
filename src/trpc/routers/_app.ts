@@ -1,7 +1,7 @@
 import { categoriesRouter } from '@/modules/categories/server/procedures';
 import { baseProcedure, createTRPCRouter, protectedProcedure } from '../init';
 import { db } from '@/db';
-import { twitchAccounts, twitchCurrentStreams, twitchRecommendationRecords } from '@/db/schema';
+import { twitchAccounts, twitchCurrentStreams, twitchRecommendationRecords, twitchUserRecommendationRecords, users } from '@/db/schema';
 import {
   getTwitchFollowedChannels,
   getTwitchFollowedStreams,
@@ -15,7 +15,7 @@ import { decryptTwitchToken, encryptTwitchToken } from '@/lib/twitch/token-crypt
 import { desc, eq, gt, sql } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { gatherPublicTwitchSnapshot, publicStreamStaleBefore } from '@/lib/twitch/data-gather';
+import { gatherPublicTwitchSnapshot, gatherTwitchUserSnapshot, publicStreamStaleBefore } from '@/lib/twitch/data-gather';
 
 function recommendationStreamFromPayload(payload: Record<string, unknown>): TwitchStream {
   const userLogin = String(payload.user_login ?? '');
@@ -58,8 +58,39 @@ export const appRouter = createTRPCRouter({
       }),
     recommendationStreams: baseProcedure
       .input(z.object({ first: z.number().int().min(1).max(50).optional() }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const first = input?.first ?? 50;
+        if (ctx.clerkUserId) {
+          const [user] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.clerkId, ctx.clerkUserId));
+          if (user) {
+            const personalized = await db.execute(sql`
+              WITH latest_snapshot AS (
+                SELECT MAX(${twitchUserRecommendationRecords.collectedAt}) AS collected_at
+                FROM ${twitchUserRecommendationRecords}
+                WHERE ${twitchUserRecommendationRecords.userId} = ${user.id}
+              )
+              SELECT ${twitchUserRecommendationRecords.payload} AS payload
+              FROM ${twitchUserRecommendationRecords}
+              JOIN latest_snapshot
+                ON ${twitchUserRecommendationRecords.collectedAt} = latest_snapshot.collected_at
+              WHERE ${twitchUserRecommendationRecords.userId} = ${user.id}
+              ORDER BY COALESCE((${twitchUserRecommendationRecords.payload}->>'recommendation_score')::double precision, 0) DESC
+              LIMIT ${first}
+            `);
+            if (personalized.rows.length > 0) {
+              return {
+                data: personalized.rows.map((row) =>
+                  recommendationStreamFromPayload(row.payload as Record<string, unknown>),
+                ),
+                pagination: {},
+              };
+            }
+          }
+        }
+
         const currentStreams = await db
           .select()
           .from(twitchCurrentStreams)
@@ -122,6 +153,16 @@ export const appRouter = createTRPCRouter({
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: error instanceof Error ? error.message : 'Twitch data gather failed',
+        });
+      }
+    }),
+    gatherUserData: protectedProcedure.mutation(async ({ ctx }) => {
+      try {
+        return await gatherTwitchUserSnapshot(ctx.user.id);
+      } catch (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error instanceof Error ? error.message : 'Twitch user data gather failed',
         });
       }
     }),

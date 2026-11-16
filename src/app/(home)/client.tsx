@@ -32,7 +32,8 @@ interface TwitchHomeProps {
 export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProps) => {
     const { isSignedIn } = useAuth();
     const [now, setNow] = useState<number | null>(null);
-    const gatherPublicData = trpc.twitch.gatherPublicData.useMutation();
+    const { mutate: gatherPublicData } = trpc.twitch.gatherPublicData.useMutation();
+    const { mutate: gatherUserData } = trpc.twitch.gatherUserData.useMutation();
     const trpcUtils = trpc.useUtils();
 
     useEffect(() => {
@@ -43,12 +44,13 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
     }, []);
 
     useEffect(() => {
-        if (isSignedIn === true && !gatherPublicData.isPending) {
-            gatherPublicData.mutate(undefined, {
+        if (isSignedIn === true) {
+            gatherPublicData(undefined, {
                 onSuccess: () => trpcUtils.twitch.recommendationStreams.invalidate(),
             });
+            gatherUserData();
         }
-    }, [isSignedIn, trpcUtils.twitch.recommendationStreams, gatherPublicData]);
+    }, [isSignedIn, gatherPublicData, gatherUserData, trpcUtils.twitch.recommendationStreams]);
 
     const followedChannelsQuery = trpc.twitch.followedChannels.useQuery(
         { first: 20 },
