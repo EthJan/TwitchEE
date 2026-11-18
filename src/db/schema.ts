@@ -44,3 +44,24 @@ export const twitchCurrentStreams = pgTable("twitch_current_streams", {
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
 }, (t) => [index("twitch_current_streams_last_seen_at_idx").on(t.lastSeenAt)]);
+
+export const twitchUserContextRecords = pgTable("twitch_user_context_records", {
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    dataset: text("dataset").notNull(),
+    recordKey: text("record_key").notNull(),
+    collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+}, (t) => [
+    primaryKey({ columns: [t.userId, t.dataset, t.recordKey, t.collectedAt] }),
+    index("twitch_user_context_records_user_dataset_idx").on(t.userId, t.dataset),
+]);
+
+export const twitchUserRecommendationRecords = pgTable("twitch_user_recommendation_records", {
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    recordKey: text("record_key").notNull(),
+    collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+}, (t) => [
+    primaryKey({ columns: [t.userId, t.recordKey, t.collectedAt] }),
+    index("twitch_user_recommendations_user_collected_idx").on(t.userId, t.collectedAt),
+]);
