@@ -1,7 +1,7 @@
 import { categoriesRouter } from '@/modules/categories/server/procedures';
 import { baseProcedure, createTRPCRouter, protectedProcedure } from '../init';
 import { db } from '@/db';
-import { twitchAccounts, twitchCurrentStreams, twitchRecommendationRecords, twitchUserRecommendationRecords, users } from '@/db/schema';
+import { twitchAccounts, twitchRecommendationRecords } from '@/db/schema';
 import {
   getTwitchFollowedChannels,
   getTwitchFollowedStreams,
@@ -10,32 +10,11 @@ import {
   getTwitchVideos,
   refreshTwitchAccessToken,
 } from '@/lib/twitch/client';
-import type { TwitchStream } from '@/lib/twitch/client';
 import { decryptTwitchToken, encryptTwitchToken } from '@/lib/twitch/token-crypto';
-import { desc, eq, gt, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { gatherPublicTwitchSnapshot, gatherTwitchUserSnapshot, publicStreamStaleBefore } from '@/lib/twitch/data-gather';
-
-function recommendationStreamFromPayload(payload: Record<string, unknown>): TwitchStream {
-  const userLogin = String(payload.user_login ?? '');
-  return {
-    id: String(payload.id ?? ''),
-    user_id: String(payload.user_id ?? ''),
-    user_login: userLogin,
-    user_name: String(payload.user_name ?? ''),
-    game_id: String(payload.game_id ?? ''),
-    game_name: String(payload.game_name ?? ''),
-    type: 'live',
-    title: String(payload.title ?? ''),
-    viewer_count: Number(payload.viewer_count ?? 0),
-    started_at: String(payload.started_at ?? ''),
-    language: String(payload.language ?? ''),
-    thumbnail_url: String(payload.thumbnail_url ?? '') || `https://static-cdn.jtvnw.net/previews-ttv/live_user_${encodeURIComponent(userLogin)}-640x360.jpg`,
-    tags: Array.isArray(payload.tags) ? payload.tags.map(String) : [],
-    is_mature: Boolean(payload.is_mature),
-  };
-}
  
 export const appRouter = createTRPCRouter({
   categories: categoriesRouter,
@@ -58,55 +37,8 @@ export const appRouter = createTRPCRouter({
       }),
     recommendationStreams: baseProcedure
       .input(z.object({ first: z.number().int().min(1).max(50).optional() }).optional())
-      .query(async ({ input, ctx }) => {
+      .query(async ({ input }) => {
         const first = input?.first ?? 50;
-        if (ctx.clerkUserId) {
-          const [user] = await db
-            .select({ id: users.id })
-            .from(users)
-            .where(eq(users.clerkId, ctx.clerkUserId));
-          if (user) {
-            const personalized = await db.execute(sql`
-              WITH latest_snapshot AS (
-                SELECT MAX(${twitchUserRecommendationRecords.collectedAt}) AS collected_at
-                FROM ${twitchUserRecommendationRecords}
-                WHERE ${twitchUserRecommendationRecords.userId} = ${user.id}
-              )
-              SELECT ${twitchUserRecommendationRecords.payload} AS payload
-              FROM ${twitchUserRecommendationRecords}
-              JOIN latest_snapshot
-                ON ${twitchUserRecommendationRecords.collectedAt} = latest_snapshot.collected_at
-              WHERE ${twitchUserRecommendationRecords.userId} = ${user.id}
-              ORDER BY COALESCE((${twitchUserRecommendationRecords.payload}->>'recommendation_score')::double precision, 0) DESC
-              LIMIT ${first}
-            `);
-            if (personalized.rows.length > 0) {
-              return {
-                data: personalized.rows.map((row) =>
-                  recommendationStreamFromPayload(row.payload as Record<string, unknown>),
-                ),
-                pagination: {},
-              };
-            }
-          }
-        }
-
-        const currentStreams = await db
-          .select()
-          .from(twitchCurrentStreams)
-          .where(gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()))
-          .orderBy(desc(twitchCurrentStreams.viewerCount))
-          .limit(first);
-
-        if (currentStreams.length > 0) {
-          return {
-            data: currentStreams.map(({ payload }) =>
-              recommendationStreamFromPayload(payload),
-            ),
-            pagination: {},
-          };
-        }
-
         const result = await db.execute(sql`
           WITH latest_snapshot AS (
             SELECT MAX(${twitchRecommendationRecords.collectedAt}) AS collected_at
@@ -146,26 +78,6 @@ export const appRouter = createTRPCRouter({
 
         return { data, pagination: {} };
       }),
-    gatherPublicData: baseProcedure.mutation(async () => {
-      try {
-        return await gatherPublicTwitchSnapshot();
-      } catch (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Twitch data gather failed',
-        });
-      }
-    }),
-    gatherUserData: protectedProcedure.mutation(async ({ ctx }) => {
-      try {
-        return await gatherTwitchUserSnapshot(ctx.user.id);
-      } catch (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Twitch user data gather failed',
-        });
-      }
-    }),
     followedStreams: protectedProcedure
       .input(z.object({ first: z.number().int().min(1).max(100).optional(), after: z.string().min(1).optional() }).optional())
       .query(async ({ ctx, input }) => {
