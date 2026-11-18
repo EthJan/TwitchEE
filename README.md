@@ -31,6 +31,28 @@ npx drizzle-kit push
 
 The backend uses Twitch app access tokens for public video queries and user access tokens for followed channels. Videos are available through the `twitch.videos` tRPC procedure. For example, query videos by login with `{ userLogin: "twitch" }`, or by `userId`/`gameId`.
 
+Public stream snapshots are gathered by `/api/data-gather`. The app also refreshes this public snapshot when a Clerk session becomes signed in; this does not require Twitch user credentials. Streams not observed for ten minutes are removed, so ended streams do not remain in recommendations.
+
+After applying the latest migration, run the user recommendation worker from a Python environment with `requirements.txt` installed:
+
+```bash
+python notebooks/run_user_recommendations.py
+```
+
+The scheduled GitHub Actions workflow runs this command every five minutes. It reads user context collected by the app from Postgres and writes user-scoped recommendations back to Postgres; it never receives Twitch tokens. Set `TWITCH_RECOMMENDATION_USER_ID` to process one user, or omit it to process every connected user.
+
+## GitHub Actions schedule
+
+Vercel Hobby does not support a five-minute Cron schedule, so the [`Refresh Twitch recommendations`](/.github/workflows/recommendations.yml) GitHub Actions workflow handles scheduling instead. It calls the deployed app to refresh public live streams and runs the Python recommendation worker every five minutes. Keep deploying the Next.js app to Vercel; no Vercel Cron is needed.
+
+Add these repository secrets under **Settings > Secrets and variables > Actions**:
+
+- `DATABASE_URL`: the same Neon/Postgres database used by the app.
+- `APP_URL`: the deployed base URL, for example `https://twitch-ee.vercel.app`.
+- `CRON_SECRET`: the same value configured as an environment variable on Vercel; it authorizes the workflow's request to `/api/data-gather`.
+
+After pushing the workflow to the repository's default branch, enable GitHub Actions if prompted. It will appear under **Actions** and can also be triggered manually with **Run workflow**. Scheduled runs can be delayed during GitHub Actions load; confirm the repository's included Actions minutes are sufficient, especially if it is private.
+
 Live stream and video cards open an in-app viewer using the Twitch embedded player. Set `TWITCH_EMBED_PARENT` to the production hostname when deploying.
 
 Then, run the development server:
