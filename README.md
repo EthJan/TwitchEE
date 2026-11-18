@@ -31,28 +31,6 @@ npx drizzle-kit push
 
 The backend uses Twitch app access tokens for public video queries and user access tokens for followed channels. Videos are available through the `twitch.videos` tRPC procedure. For example, query videos by login with `{ userLogin: "twitch" }`, or by `userId`/`gameId`.
 
-Public stream snapshots are gathered by the scheduled `/api/data-gather` route every five minutes on Vercel. Set `CRON_SECRET` so the route only accepts Vercel Cron requests. The app also refreshes this public snapshot when a Clerk session becomes signed in; this does not require Twitch user credentials. Streams not observed for ten minutes are removed, so ended streams do not remain in recommendations.
-
-After applying the latest migration, run the user recommendation worker from a Python environment with `requirements.txt` installed:
-
-```bash
-python notebooks/run_user_recommendations.py
-```
-
-Schedule that command in the same five-minute Python worker that runs the notebook pipeline. It reads user context collected by the app from Postgres and writes user-scoped recommendations back to Postgres; it never receives Twitch tokens. Set `TWITCH_RECOMMENDATION_USER_ID` to process one user, or omit it to process every connected user.
-
-## GitHub Actions schedule
-
-The [`Refresh Twitch recommendations`](/.github/workflows/recommendations.yml) workflow refreshes public live streams through the deployed app and runs the Python recommendation worker every five minutes.
-
-Add these repository secrets under **Settings > Secrets and variables > Actions**:
-
-- `DATABASE_URL`: the same Neon/Postgres database used by the app.
-- `APP_URL`: the deployed base URL, for example `https://twitch-ee.vercel.app`.
-- `CRON_SECRET`: the same secret configured on Vercel.
-
-After pushing the workflow to the repository's default branch, it will appear under **Actions** and can also be triggered manually with **Run workflow**.
-
 Live stream and video cards open an in-app viewer using the Twitch embedded player. Set `TWITCH_EMBED_PARENT` to the production hostname when deploying.
 
 Then, run the development server:
