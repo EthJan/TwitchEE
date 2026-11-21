@@ -61,6 +61,11 @@ export type TwitchStream = {
   is_mature: boolean;
 };
 
+export type TwitchGame = {
+  id: string;
+  name: string;
+};
+
 type TwitchResponse<T> = {
   data: T[];
   pagination: {
@@ -262,6 +267,11 @@ export async function getTwitchStreams(options: {
   if (options.gameId) params.set("game_id", options.gameId);
 
   return twitchRequest<TwitchResponse<TwitchStream>>('/streams', params);
+}
+
+export async function getTwitchTopGames(first = 10) {
+  const params = new URLSearchParams({ first: String(first) });
+  return twitchRequest<TwitchResponse<TwitchGame>>('/games/top', params);
 }
 
 export async function getTwitchVideos(options: {

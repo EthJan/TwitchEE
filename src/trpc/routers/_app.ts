@@ -6,6 +6,7 @@ import {
   getTwitchFollowedChannels,
   getTwitchFollowedStreams,
   getTwitchStreams,
+  getTwitchTopGames,
   getTwitchUserByLogin,
   getTwitchVideos,
   refreshTwitchAccessToken,
@@ -40,6 +41,18 @@ function recommendationStreamFromPayload(payload: Record<string, unknown>): Twit
 export const appRouter = createTRPCRouter({
   categories: categoriesRouter,
   twitch: createTRPCRouter({
+    topGames: baseProcedure
+      .input(z.object({ first: z.number().int().min(1).max(100).optional() }).optional())
+      .query(async ({ input }) => {
+        try {
+          return await getTwitchTopGames(input?.first ?? 10);
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : 'Twitch top categories request failed',
+          });
+        }
+      }),
     popularStreams: baseProcedure
       .input(z.object({ first: z.number().int().min(1).max(100).optional(), language: z.string().length(2).optional(), gameId: z.string().min(1).optional() }).optional())
       .query(async ({ input }) => {

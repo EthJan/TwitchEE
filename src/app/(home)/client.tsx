@@ -1,8 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { trpc } from "@/trpc/client";
 
@@ -26,12 +25,14 @@ function getThumbnailUrl(url: string) {
 
 interface TwitchHomeProps {
     searchTerm?: string;
+    categoryId?: string;
     subscriptions?: boolean;
 }
 
-export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProps) => {
-    const { isSignedIn } = useAuth();
+export const PageClient = ({ searchTerm, categoryId, subscriptions = false }: TwitchHomeProps) => {
+    const { isLoaded, isSignedIn } = useAuth();
     const [now, setNow] = useState<number | null>(null);
+    const [sortMode, setSortMode] = useState<"recommended" | "viewers-desc" | "viewers-asc">("recommended");
     const { mutate: gatherPublicData } = trpc.twitch.gatherPublicData.useMutation();
     const { mutate: gatherUserData } = trpc.twitch.gatherUserData.useMutation();
     const trpcUtils = trpc.useUtils();
@@ -44,13 +45,20 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
     }, []);
 
     useEffect(() => {
-        if (isSignedIn === true) {
-            gatherPublicData(undefined, {
-                onSuccess: () => trpcUtils.twitch.recommendationStreams.invalidate(),
-            });
-            gatherUserData();
-        }
-    }, [isSignedIn, gatherPublicData, gatherUserData, trpcUtils.twitch.recommendationStreams]);
+        if (!isLoaded || subscriptions || categoryId) return;
+
+        gatherPublicData(undefined, {
+            onSuccess: () => trpcUtils.twitch.recommendationStreams.invalidate(),
+        });
+    }, [isLoaded, subscriptions, categoryId, gatherPublicData, trpcUtils.twitch.recommendationStreams]);
+
+    useEffect(() => {
+        if (isSignedIn) gatherUserData();
+    }, [isSignedIn, gatherUserData]);
+
+    useEffect(() => {
+        setSortMode(categoryId ? "viewers-desc" : "recommended");
+    }, [categoryId]);
 
     const followedChannelsQuery = trpc.twitch.followedChannels.useQuery(
         { first: 20 },
@@ -68,7 +76,15 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
     const recommendationStreamsQuery = trpc.twitch.recommendationStreams.useQuery(
         { first: 50 },
         {
-            enabled: !subscriptions,
+            enabled: !subscriptions && !categoryId,
+            refetchInterval: 30_000,
+            refetchOnWindowFocus: true,
+        },
+    );
+    const categoryStreamsQuery = trpc.twitch.popularStreams.useQuery(
+        { first: 50, gameId: categoryId },
+        {
+            enabled: !subscriptions && Boolean(categoryId),
             refetchInterval: 30_000,
             refetchOnWindowFocus: true,
         },
@@ -77,81 +93,105 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
         { userLogin: searchTerm ?? "", first: 20, sort: "time" },
         { enabled: Boolean(searchTerm) },
     );
-    const liveStreamsQuery = subscriptions ? followedStreamsQuery : recommendationStreamsQuery;
+    const liveStreamsQuery = subscriptions
+        ? followedStreamsQuery
+        : categoryId
+            ? categoryStreamsQuery
+            : recommendationStreamsQuery;
     const isTwitchConnected = subscriptions && followedChannelsQuery.isSuccess;
+    const activeSortMode = categoryId && sortMode === "recommended" ? "viewers-desc" : sortMode;
+    const sortedStreams = useMemo(() => {
+        const streams = liveStreamsQuery.data?.data ?? [];
+        if (activeSortMode === "recommended") return streams;
+
+        return [...streams].sort((a, b) =>
+            activeSortMode === "viewers-desc"
+                ? b.viewer_count - a.viewer_count
+                : a.viewer_count - b.viewer_count,
+        );
+    }, [activeSortMode, liveStreamsQuery.data]);
 
     return (
         <section className="border-b border-slate-200 bg-white text-slate-950">
             <div className="mx-auto max-w-[2400px] px-4 py-8">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                            Twitch
-                        </p>
-                        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-                            {subscriptions ? "Live from your subscriptions" : "Recommended live streams"}
-                        </h1>
-                    </div>
-                    {subscriptions && isSignedIn && isTwitchConnected ? (
-                        <span className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
-                            Twitch connected
-                        </span>
-                    ) : subscriptions && isSignedIn ? (
-                        <a
-                            className="bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-                            href="/api/twitch/connect"
-                        >
-                            Connect Twitch
-                        </a>
-                    ) : subscriptions ? (
-                        <Link
-                            className="border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-950"
-                            href="/sign-in"
-                        >
-                            Sign in to connect
-                        </Link>
-                    ) : null}
-                </div>
-
-                {subscriptions && !isSignedIn && (
-                    <p className="mt-5 text-sm text-slate-500">
-                        Sign in and connect Twitch to see live channels from your follows.
-                    </p>
-                )}
-
-                {liveStreamsQuery.isLoading && (
-                    <p className="mt-8 text-sm text-slate-500">
-                        {subscriptions ? "Checking your followed channels for live streams..." : "Loading recommended live streams..."}
-                    </p>
-                )}
-
-                {liveStreamsQuery.isError && (
-                    <p className="mt-8 text-sm text-slate-500">
-                        {subscriptions && liveStreamsQuery.error.message.includes("Connect your Twitch")
-                            ? "Connect Twitch above to see who is live."
-                            : liveStreamsQuery.error.message}
-                    </p>
-                )}
-
-                {liveStreamsQuery.data && liveStreamsQuery.data.data.length === 0 && (
-                    <div className="mt-8 border border-slate-200 bg-slate-50 px-5 py-6">
-                        <p className="font-medium">
-                            {subscriptions ? "Nobody you follow is live right now." : "No live streams are available right now."}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">This section updates automatically.</p>
-                    </div>
-                )}
-
-                {liveStreamsQuery.data && liveStreamsQuery.data.data.length > 0 && (
-                    <div className="mt-8">
-                        <div className="mb-4 flex items-center justify-between">
-                            <h2 className="text-lg font-semibold">Live now</h2>
-                            <span className="text-sm text-slate-500">
-                                {liveStreamsQuery.data.data.length} channel{liveStreamsQuery.data.data.length === 1 ? "" : "s"}
+                {subscriptions && isSignedIn && (
+                    <div className="flex justify-end">
+                        {isTwitchConnected ? (
+                            <span className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                                Twitch connected
                             </span>
+                        ) : (
+                            <a
+                                className="bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                                href="/api/twitch/connect"
+                            >
+                                Connect Twitch
+                            </a>
+                        )}
+                    </div>
+                )}
+
+                <div className={subscriptions ? "mt-6" : ""}>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <h2 className="text-lg font-semibold">
+                            {subscriptions ? "Live now" : categoryId ? "Live streams in this category" : "Recommended to you"}
+                        </h2>
+                        <div className="flex items-center gap-3">
+                            {liveStreamsQuery.data && (
+                                <span className="text-sm text-slate-500">
+                                    {liveStreamsQuery.data.data.length} channel{liveStreamsQuery.data.data.length === 1 ? "" : "s"}
+                                </span>
+                            )}
+                            {liveStreamsQuery.data && liveStreamsQuery.data.data.length > 0 && (
+                                <select
+                                    aria-label="Sort streams"
+                                    className="border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    value={activeSortMode}
+                                    onChange={(event) => {
+                                        const value = event.currentTarget.value;
+                                        if (value === "recommended" || value === "viewers-desc" || value === "viewers-asc") {
+                                            setSortMode(value);
+                                        }
+                                    }}
+                                >
+                                    {!categoryId && <option value="recommended">Recommended</option>}
+                                    <option value="viewers-desc">Viewers: high to low</option>
+                                    <option value="viewers-asc">Viewers: low to high</option>
+                                </select>
+                            )}
                         </div>
+                    </div>
+
+                    {liveStreamsQuery.isLoading && (
+                        <p className="mt-3 text-sm text-slate-500">
+                            {subscriptions
+                                ? "Checking your followed channels for live streams..."
+                                : categoryId
+                                    ? "Loading live streams in this category..."
+                                    : "Loading recommendations..."}
+                        </p>
+                    )}
+
+                    {liveStreamsQuery.isError && (
+                        <p className="mt-3 text-sm text-slate-500">
+                            {subscriptions && liveStreamsQuery.error.message.includes("Connect your Twitch")
+                                ? "Connect Twitch above to see who is live."
+                                : liveStreamsQuery.error.message}
+                        </p>
+                    )}
+
+                    {liveStreamsQuery.data && liveStreamsQuery.data.data.length === 0 && (
+                        <div className="mt-3 border border-slate-200 bg-slate-50 px-5 py-6">
+                            <p className="font-medium">
+                                {subscriptions ? "Nobody you follow is live right now." : "No live streams are available right now."}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-500">This section updates automatically.</p>
+                        </div>
+                    )}
+
+                    {liveStreamsQuery.data && sortedStreams.length > 0 && (
                         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                            {liveStreamsQuery.data.data.map((stream) => (
+                            {sortedStreams.map((stream) => (
                                 <a
                                     className="group overflow-hidden border border-slate-200 bg-white hover:border-slate-400"
                                     href={`/watch/stream/${encodeURIComponent(stream.user_login)}`}
@@ -181,8 +221,8 @@ export const PageClient = ({ searchTerm, subscriptions = false }: TwitchHomeProp
                                 </a>
                             ))}
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
 
                 {subscriptions && followedChannelsQuery.data && followedChannelsQuery.data.data.length > 0 && (
                     <div className="mt-10 border-t border-slate-200 pt-7">

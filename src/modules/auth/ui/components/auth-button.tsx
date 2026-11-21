@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button"
 import { UserCircleIcon } from "lucide-react"
 import { SignInButton, UserButton, useAuth } from "@clerk/nextjs";
 
-
 export const AuthButton = () => {
     const { isLoaded, isSignedIn } = useAuth();
 

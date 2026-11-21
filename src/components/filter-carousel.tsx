@@ -8,7 +8,7 @@ import{
     CarouselNext,
     CarouselPrevious,
 } from "@/components/ui/carousel";
-import { Badge } from "./ui/badge";
+import { badgeVariants } from "./ui/badge";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,12 +17,14 @@ interface FilterCarouselProps {
 	value?: string | null
 	isLoading?: boolean
 	onSelect: (value: string | null) => void
+	onPrefetch?: (value: string) => void
 	data: { value: string; label: string }[]
 }
 
 export const FilterCarousel = ({
     value, 
     onSelect,
+    onPrefetch,
     data, 
     isLoading,
 }: FilterCarouselProps) => {
@@ -63,13 +65,17 @@ export const FilterCarousel = ({
                 <CarouselContent className="-ml-3">
                     {!isLoading && (
                         <CarouselItem 
-                        onClick={()=> onSelect(null)}
                         className = "pl-3 basis-auto">
-                            <Badge
-                            variant={!value ? "default" :"secondary"}
-                            className="rounded-lg px-3 py-1 cursor-pointer whitespace-nowrap text-sm">
+                            <button
+                                type="button"
+                                onClick={() => onSelect(null)}
+                                className={cn(
+                                    badgeVariants({ variant: !value ? "default" : "secondary" }),
+                                    "rounded-lg px-3 py-1 whitespace-nowrap text-sm focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                )}
+                            >
                                 All
-                            </Badge>
+                            </button>
                         </CarouselItem> 
                     )}
                     {isLoading && 
@@ -83,13 +89,19 @@ export const FilterCarousel = ({
                     }
                     {!isLoading && data.map((item) => (
                         <CarouselItem key={item.value} 
-                        className="pl-3 basis-auto" 
-                        onClick={()=> onSelect(item.value)}>
-                            <Badge 
-                                variant={value === item.value ? "default" : "secondary"}
-                                className="rounded-lg px-3 py-1 cursor-pointer whitespace-nowrap text-sm" >
+                        className="pl-3 basis-auto">
+                            <button
+                                type="button"
+                                onClick={() => onSelect(item.value)}
+                                onMouseEnter={() => onPrefetch?.(item.value)}
+                                onFocus={() => onPrefetch?.(item.value)}
+                                className={cn(
+                                    badgeVariants({ variant: value === item.value ? "default" : "secondary" }),
+                                    "rounded-lg px-3 py-1 whitespace-nowrap text-sm focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                )}
+                            >
                                 {item.label}
-                            </Badge>
+                            </button>
                         </CarouselItem>
                     ))}
                 </CarouselContent>
