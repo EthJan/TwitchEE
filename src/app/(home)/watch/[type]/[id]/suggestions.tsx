@@ -46,7 +46,7 @@ export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
                 <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {suggestions.map((stream) => (
                         <article
-                            className="group overflow-hidden rounded-md border border-slate-200 bg-white hover:border-slate-400"
+                            className="group overflow-hidden rounded-xl border border-slate-200 bg-white hover:border-slate-400"
                             key={stream.id}
                         >
                             <div className="relative aspect-video overflow-hidden bg-slate-100">

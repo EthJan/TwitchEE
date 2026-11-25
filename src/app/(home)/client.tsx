@@ -245,7 +245,7 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                             {sortedStreams.map((stream) => (
                                 <article
-                                    className="group overflow-hidden rounded-md border border-slate-200 bg-white hover:border-slate-400"
+                                    className="group overflow-hidden rounded-xl border border-slate-200 bg-white hover:border-slate-400"
                                     key={stream.id}
                                 >
                                     <div className="relative aspect-video overflow-hidden bg-slate-100">
@@ -319,7 +319,7 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                                     {categorySearchQuery.data.data.map((category) => (
                                         <a
-                                            className="flex items-center gap-3 rounded-md border border-slate-200 bg-white p-3 hover:border-slate-400"
+                                            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 hover:border-slate-400"
                                             href={`/?${new URLSearchParams({ categoryId: category.id }).toString()}`}
                                             key={category.id}
                                         >
@@ -359,7 +359,7 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                                     if (channel.is_live) {
                                         return (
                                             <article
-                                                className="grid overflow-hidden rounded-md border border-slate-200 bg-white hover:border-slate-400 sm:grid-cols-[280px_minmax(0,1fr)] lg:grid-cols-[minmax(400px,50%)_1fr]"
+                                                className="grid overflow-hidden rounded-xl border border-slate-200 bg-white hover:border-slate-400 sm:grid-cols-[280px_minmax(0,1fr)] lg:grid-cols-[minmax(400px,50%)_1fr]"
                                                 key={channel.id}
                                             >
                                                 <a
@@ -423,7 +423,7 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
 
                                     return (
                                         <article
-                                            className="relative flex min-h-24 items-center rounded-md border border-slate-200 bg-white p-3 pr-28 hover:border-slate-400"
+                                            className="relative flex min-h-24 items-center rounded-xl border border-slate-200 bg-white p-3 pr-28 hover:border-slate-400"
                                             key={channel.id}
                                         >
                                             <a
@@ -471,7 +471,7 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                                     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                                         {videosQuery.data.data.map((video) => (
                                             <a
-                                                className="group overflow-hidden rounded-md border border-slate-200 hover:border-slate-400"
+                                                className="group overflow-hidden rounded-xl border border-slate-200 hover:border-slate-400"
                                                 href={`/watch/video/${encodeURIComponent(video.id)}`}
                                                 key={video.id}
                                             >

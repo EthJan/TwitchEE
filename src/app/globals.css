@@ -5,6 +5,48 @@
 body {
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes brand-logo-enter {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.72) rotate(8deg);
+  }
+  72% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.1) rotate(-2deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0);
+  }
+}
+
+@keyframes brand-logo-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-30px) scale(0.72) rotate(-8deg);
+  }
+}
+
+.brand-logo-enter {
+  animation: brand-logo-enter 480ms ease-in-out both;
+}
+
+.brand-logo-exit {
+  animation: brand-logo-exit 480ms ease-in-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-logo-enter,
+  .brand-logo-exit {
+    animation-duration: 1ms;
+  }
+}
+
 @layer base {
   :root {
     --background: oklch(1 0 0);

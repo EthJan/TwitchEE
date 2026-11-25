@@ -1,10 +1,9 @@
 import { Suspense } from "react";
-import Link from "next/link";
-import Image from "next/image";
 
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { SearchInput } from "./search-input";
 import { AuthButton } from "@/modules/auth/ui/components/auth-button";
+import { BrandLink } from "./brand-link";
 
 export const HomeNavBar = () => {
     return (
@@ -13,14 +12,7 @@ export const HomeNavBar = () => {
                 {/* Menu Button */}
                 <div className="flex items-center flex-shrink-0">
                     <SidebarTrigger />
-                    <Link href="/">
-                        <div className="p-4 flex items-center gap-1">
-                            <Image src="/logo.svg" alt="Logo" width={32} height={32} />
-                            <p className="text-xl font-semibold tracking-tight">
-                                TwitchEE
-                            </p>
-                        </div>
-                    </Link>
+                    <BrandLink />
                 </div>
 
                 {/*search bar */}
