@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -24,7 +25,9 @@ export const HomeNavBar = () => {
 
                 {/*search bar */}
                 <div className="flex-1 flex justify-center max-w-[720px] mx-auto">
-                    <SearchInput />
+                    <Suspense fallback={<div className="h-10 w-full max-w-[600px]" aria-hidden="true" />}>
+                        <SearchInput />
+                    </Suspense>
 
                 </div>
                 <div className="flex-shrink-0 items-center flex gap-4">
