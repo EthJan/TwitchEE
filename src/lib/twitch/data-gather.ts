@@ -5,9 +5,11 @@ import { twitchAccounts, twitchCurrentStreams, twitchRecommendationRecords, twit
 import {
   getTwitchFollowedChannels,
   getTwitchFollowedStreams,
+  getTwitchChannelsByIds,
   getTwitchStreams,
   refreshTwitchAccessToken,
 } from '@/lib/twitch/client';
+import type { TwitchFollowedChannel } from '@/lib/twitch/client';
 import { decryptTwitchToken, encryptTwitchToken } from '@/lib/twitch/token-crypto';
 import { eq, lt } from 'drizzle-orm';
 
@@ -64,6 +66,24 @@ export async function gatherPublicTwitchSnapshot() {
 export const publicStreamStaleBefore = () =>
   new Date(Date.now() - STALE_STREAM_AFTER_MS);
 
+async function getAllFollowedChannels(accessToken: string, userId: string) {
+  const channels: TwitchFollowedChannel[] = [];
+  let after: string | undefined;
+
+  do {
+    const response = await getTwitchFollowedChannels({
+      accessToken,
+      userId,
+      first: 100,
+      after,
+    });
+    channels.push(...response.data);
+    after = response.pagination.cursor;
+  } while (after);
+
+  return channels;
+}
+
 export async function gatherTwitchUserSnapshot(userId: string) {
   const [account] = await db
     .select()
@@ -91,23 +111,58 @@ export async function gatherTwitchUserSnapshot(userId: string) {
       .where(eq(twitchAccounts.id, account.id));
   }
 
-  const [channels, streams] = await Promise.all([
-    getTwitchFollowedChannels({
-      accessToken,
-      userId: account.twitchUserId,
-      first: 100,
-    }),
+  const [followedChannels, streams] = await Promise.all([
+    getAllFollowedChannels(accessToken, account.twitchUserId),
     getTwitchFollowedStreams({
       accessToken,
       userId: account.twitchUserId,
       first: 100,
     }),
   ]);
+  const channelIds = followedChannels.map((channel) => channel.broadcaster_id);
+  const channelProfilePages = await Promise.all(
+    Array.from({ length: Math.ceil(channelIds.length / 100) }, (_, index) =>
+      getTwitchChannelsByIds(channelIds.slice(index * 100, (index + 1) * 100)),
+    ),
+  );
+  const channelProfiles = channelProfilePages.flatMap((page) => page.data);
+  const followedGameCounts = new Map<string, number>();
+  for (const channel of channelProfiles) {
+    if (channel.game_id) {
+      followedGameCounts.set(
+        channel.game_id,
+        (followedGameCounts.get(channel.game_id) ?? 0) + 1,
+      );
+    }
+  }
+  for (const stream of streams.data) {
+    if (stream.game_id && !followedGameCounts.has(stream.game_id)) {
+      followedGameCounts.set(stream.game_id, 1);
+    }
+  }
+  const followedGameIds = [...followedGameCounts.keys()];
+  const categoryResponses = await Promise.all(
+    Array.from(
+      { length: Math.ceil(followedGameIds.length / 100) },
+      (_, index) =>
+        getTwitchStreams({
+          first: 100,
+          gameIds: followedGameIds.slice(index * 100, (index + 1) * 100),
+        }),
+    ),
+  );
   const collectedAt = new Date();
   const records = [
-    ...channels.data.map((payload) => ({
+    ...followedChannels.map((payload) => ({
       userId,
       dataset: 'followed_channels',
+      recordKey: payload.broadcaster_id,
+      collectedAt,
+      payload,
+    })),
+    ...channelProfiles.map((payload) => ({
+      userId,
+      dataset: 'followed_channel_profiles',
       recordKey: payload.broadcaster_id,
       collectedAt,
       payload,
@@ -119,6 +174,17 @@ export async function gatherTwitchUserSnapshot(userId: string) {
       collectedAt,
       payload,
     })),
+    ...categoryResponses.flatMap((response) =>
+      response.data
+        .filter((payload) => payload.type === 'live')
+        .map((payload) => ({
+          userId,
+          dataset: 'followed_category_streams',
+          recordKey: `${payload.game_id}:${payload.id}`,
+          collectedAt,
+          payload,
+        })),
+    ),
   ];
 
   if (records.length > 0) {

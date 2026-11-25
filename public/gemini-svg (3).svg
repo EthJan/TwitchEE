@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 260" width="36" height="36">
+  <defs>
+    <linearGradient id="saasGrad" x1="15%" y1="0%" x2="85%" y2="100%">
+      <stop offset="0%" stop-color="#FF2E54" />
+      <stop offset="50%" stop-color="#D946EF" />
+      <stop offset="100%" stop-color="#6D28D9" />
+    </linearGradient>
+  </defs>
+
+  <path fill="url(#saasGrad)" d="M46 0 L10 36 L10 212 L72 212 L72 256 L116 212 L162 212 L250 124 L250 0 Z" />
+  <path fill="#FFFFFF" d="M36 26 L224 26 L224 114 L180 158 L122 158 L86 194 L86 158 L36 158 Z" />
+  <path fill="#18181B" d="M84 54 H122 V70 H102 V83 H119 V98 H102 V111 H122 V127 H84 Z" />
+  <path fill="#18181B" d="M138 54 H176 V70 H156 V83 H173 V98 H156 V111 H176 V127 H138 Z" />
+</svg>

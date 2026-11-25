@@ -25,14 +25,17 @@ export const CategoriesSection = ({categoryId}: CategoriesSectionProps) => {
 
 const CategoriesSectionSuspense = ({categoryId}: CategoriesSectionProps) => {
     const router = useRouter();
-    const [categories] = trpc.categories.getMany.useSuspenseQuery();
+    const trpcUtils = trpc.useUtils();
+    const [categories] = trpc.twitch.topGames.useSuspenseQuery(
+        { first: 10 },
+        { refetchInterval: 15_000, refetchOnWindowFocus: true },
+    );
     
-    const data = categories.map(({name, id}) => ({
+    const data = categories.data.map(({name, id}) => ({
         value: id,
         label:name,
     }))
-    
-    // TODO: Prefetch urls?
+
     const onSelect = (value: string | null) => {
         const url = new URL(window.location.href);
 
@@ -46,6 +49,13 @@ const CategoriesSectionSuspense = ({categoryId}: CategoriesSectionProps) => {
         router.push(url.toString());
 
     }
-    
-    return <FilterCarousel onSelect={onSelect} value={categoryId} data={data}/>
+
+    const onPrefetch = (gameId: string) => {
+        void trpcUtils.twitch.popularStreams.prefetch(
+            { first: 50, gameId },
+            { staleTime: 30_000 },
+        );
+    }
+
+    return <FilterCarousel onSelect={onSelect} onPrefetch={onPrefetch} value={categoryId} data={data}/>
 }

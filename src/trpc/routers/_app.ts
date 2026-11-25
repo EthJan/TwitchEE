@@ -1,18 +1,22 @@
 import { categoriesRouter } from '@/modules/categories/server/procedures';
 import { baseProcedure, createTRPCRouter, protectedProcedure } from '../init';
 import { db } from '@/db';
-import { twitchAccounts, twitchCurrentStreams, twitchRecommendationRecords, twitchUserRecommendationRecords, users } from '@/db/schema';
+import { twitchAccounts, twitchCurrentStreams, twitchRecommendationRecords, twitchSavedChannels, twitchUserContextRecords, twitchUserRecommendationRecords, users } from '@/db/schema';
 import {
   getTwitchFollowedChannels,
   getTwitchFollowedStreams,
   getTwitchStreams,
+  getTwitchTopGames,
   getTwitchUserByLogin,
+  getTwitchUsersByIds,
   getTwitchVideos,
   refreshTwitchAccessToken,
+  searchTwitchCategories,
+  searchTwitchChannels,
 } from '@/lib/twitch/client';
 import type { TwitchStream } from '@/lib/twitch/client';
 import { decryptTwitchToken, encryptTwitchToken } from '@/lib/twitch/token-crypto';
-import { desc, eq, gt, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, sql } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { gatherPublicTwitchSnapshot, gatherTwitchUserSnapshot, publicStreamStaleBefore } from '@/lib/twitch/data-gather';
@@ -40,6 +44,192 @@ function recommendationStreamFromPayload(payload: Record<string, unknown>): Twit
 export const appRouter = createTRPCRouter({
   categories: categoriesRouter,
   twitch: createTRPCRouter({
+    twoTowerStreams: protectedProcedure
+      .input(z.object({ first: z.number().int().min(1).max(50).optional() }).optional())
+      .query(async ({ input, ctx }) => {
+        const first = input?.first ?? 12;
+        const result = await db.execute(sql`
+          WITH latest_snapshot AS (
+            SELECT MAX(${twitchUserRecommendationRecords.collectedAt}) AS collected_at
+            FROM ${twitchUserRecommendationRecords}
+            WHERE ${twitchUserRecommendationRecords.userId} = ${ctx.user.id}
+              AND ${twitchUserRecommendationRecords.payload}->>'recommendation_model' = 'two_tower'
+          )
+          SELECT ${twitchUserRecommendationRecords.payload} AS payload
+          FROM ${twitchUserRecommendationRecords}
+          LEFT JOIN ${twitchCurrentStreams}
+            ON ${twitchCurrentStreams.id} = ${twitchUserRecommendationRecords.recordKey}
+            AND ${twitchCurrentStreams.lastSeenAt} > ${publicStreamStaleBefore()}
+          JOIN latest_snapshot
+            ON ${twitchUserRecommendationRecords.collectedAt} = latest_snapshot.collected_at
+          WHERE ${twitchUserRecommendationRecords.userId} = ${ctx.user.id}
+            AND ${twitchUserRecommendationRecords.payload}->>'recommendation_model' = 'two_tower'
+            AND (
+              ${twitchCurrentStreams.id} IS NOT NULL
+              OR ${twitchUserRecommendationRecords.collectedAt} > ${publicStreamStaleBefore()}
+            )
+          ORDER BY COALESCE((${twitchUserRecommendationRecords.payload}->>'recommendation_score')::double precision, 0) DESC
+          LIMIT ${first}
+        `);
+
+        if (result.rows.length > 0) {
+          return {
+            data: result.rows.map((row) =>
+              recommendationStreamFromPayload(row.payload as Record<string, unknown>),
+            ),
+            pagination: {},
+          };
+        }
+
+        const freshContextStreams = await db.execute(sql`
+          SELECT DISTINCT ON (
+            ${twitchUserContextRecords.dataset},
+            ${twitchUserContextRecords.recordKey}
+          ) ${twitchUserContextRecords.dataset} AS dataset,
+            ${twitchUserContextRecords.payload} AS payload
+          FROM ${twitchUserContextRecords}
+          WHERE ${twitchUserContextRecords.userId} = ${ctx.user.id}
+            AND ${twitchUserContextRecords.dataset} IN (
+              'followed_streams',
+              'followed_category_streams'
+            )
+            AND ${twitchUserContextRecords.collectedAt} > ${publicStreamStaleBefore()}
+          ORDER BY
+            ${twitchUserContextRecords.dataset},
+            ${twitchUserContextRecords.recordKey},
+            ${twitchUserContextRecords.collectedAt} DESC
+        `);
+        const seenStreamIds = new Set<string>();
+        const contextStreams = freshContextStreams.rows
+          .sort((a, b) => {
+            const aDataset = String(a.dataset);
+            const bDataset = String(b.dataset);
+            if (aDataset !== bDataset) {
+              return aDataset === 'followed_streams' ? -1 : 1;
+            }
+            const aPayload = a.payload as Record<string, unknown>;
+            const bPayload = b.payload as Record<string, unknown>;
+            return Number(bPayload.viewer_count ?? 0) - Number(aPayload.viewer_count ?? 0);
+          })
+          .map((row) => row.payload as Record<string, unknown>)
+          .filter((payload) => {
+            const streamId = String(payload.id ?? '');
+            if (!streamId || seenStreamIds.has(streamId)) return false;
+            seenStreamIds.add(streamId);
+            return true;
+          })
+          .slice(0, first)
+          .map(recommendationStreamFromPayload);
+
+        if (contextStreams.length > 0) {
+          return { data: contextStreams, pagination: {} };
+        }
+
+        const currentStreams = await db
+          .select()
+          .from(twitchCurrentStreams)
+          .where(gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()))
+          .orderBy(desc(twitchCurrentStreams.viewerCount))
+          .limit(first);
+
+        if (currentStreams.length > 0) {
+          return {
+            data: currentStreams.map(({ payload }) =>
+              recommendationStreamFromPayload(payload),
+            ),
+            pagination: {},
+          };
+        }
+
+        return {
+          data: result.rows.map((row) =>
+            recommendationStreamFromPayload(row.payload as Record<string, unknown>),
+          ),
+          pagination: {},
+        };
+      }),
+    topGames: baseProcedure
+      .input(z.object({ first: z.number().int().min(1).max(100).optional() }).optional())
+      .query(async ({ input }) => {
+        try {
+          return await getTwitchTopGames(input?.first ?? 10);
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : 'Twitch top categories request failed',
+          });
+        }
+      }),
+    searchChannels: baseProcedure
+      .input(z.object({
+        query: z.string().trim().min(1).max(100),
+        first: z.number().int().min(1).max(100).optional(),
+        after: z.string().min(1).optional(),
+        liveOnly: z.boolean().optional(),
+      }))
+      .query(async ({ input }) => {
+        try {
+          const channels = await searchTwitchChannels(input);
+          const streamData = channels.data.length > 0
+            ? (await getTwitchStreams({
+              userIds: channels.data.map((channel) => channel.id),
+            })).data
+            : [];
+          const streamsByUserId = new Map(
+            streamData.map((stream) => [stream.user_id, stream]),
+          );
+
+          return {
+            ...channels,
+            data: channels.data
+              .map((channel) => ({
+                ...channel,
+                stream: streamsByUserId.get(channel.id) ?? null,
+              }))
+              .sort((a, b) => Number(b.is_live) - Number(a.is_live)),
+          };
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : 'Twitch channel search failed',
+          });
+        }
+      }),
+    searchCategories: baseProcedure
+      .input(z.object({
+        query: z.string().trim().min(1).max(100),
+        first: z.number().int().min(1).max(100).optional(),
+        after: z.string().min(1).optional(),
+      }))
+      .query(async ({ input }) => {
+        try {
+          return await searchTwitchCategories(input);
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : 'Twitch category search failed',
+          });
+        }
+      }),
+    searchSuggestions: baseProcedure
+      .input(z.object({
+        query: z.string().trim().min(2).max(100),
+        first: z.number().int().min(1).max(20).optional(),
+      }))
+      .query(async ({ input }) => {
+        try {
+          const [channels, categories] = await Promise.all([
+            searchTwitchChannels({ query: input.query, first: input.first }),
+            searchTwitchCategories({ query: input.query, first: input.first }),
+          ]);
+          return { channels: channels.data, categories: categories.data };
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : 'Twitch search suggestions failed',
+          });
+        }
+      }),
     popularStreams: baseProcedure
       .input(z.object({ first: z.number().int().min(1).max(100).optional(), language: z.string().length(2).optional(), gameId: z.string().min(1).optional() }).optional())
       .query(async ({ input }) => {
@@ -74,17 +264,40 @@ export const appRouter = createTRPCRouter({
               )
               SELECT ${twitchUserRecommendationRecords.payload} AS payload
               FROM ${twitchUserRecommendationRecords}
+              LEFT JOIN ${twitchCurrentStreams}
+                ON ${twitchCurrentStreams.id} = ${twitchUserRecommendationRecords.recordKey}
+                AND ${twitchCurrentStreams.lastSeenAt} > ${publicStreamStaleBefore()}
               JOIN latest_snapshot
                 ON ${twitchUserRecommendationRecords.collectedAt} = latest_snapshot.collected_at
               WHERE ${twitchUserRecommendationRecords.userId} = ${user.id}
+                AND (
+                  ${twitchCurrentStreams.id} IS NOT NULL
+                  OR ${twitchUserRecommendationRecords.collectedAt} > ${publicStreamStaleBefore()}
+                )
               ORDER BY COALESCE((${twitchUserRecommendationRecords.payload}->>'recommendation_score')::double precision, 0) DESC
               LIMIT ${first}
             `);
             if (personalized.rows.length > 0) {
+              const personalizedStreams = personalized.rows.map((row) =>
+                recommendationStreamFromPayload(row.payload as Record<string, unknown>),
+              );
+              if (personalizedStreams.length < first) {
+                const fillStreams = await db
+                  .select()
+                  .from(twitchCurrentStreams)
+                  .where(gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()))
+                  .orderBy(desc(twitchCurrentStreams.viewerCount))
+                  .limit(first);
+                const seenIds = new Set(personalizedStreams.map((stream) => stream.id));
+                for (const stream of fillStreams) {
+                  if (seenIds.has(stream.id)) continue;
+                  personalizedStreams.push(recommendationStreamFromPayload(stream.payload));
+                  seenIds.add(stream.id);
+                  if (personalizedStreams.length >= first) break;
+                }
+              }
               return {
-                data: personalized.rows.map((row) =>
-                  recommendationStreamFromPayload(row.payload as Record<string, unknown>),
-                ),
+                data: personalizedStreams,
                 pagination: {},
               };
             }
@@ -227,18 +440,63 @@ export const appRouter = createTRPCRouter({
         }
 
         try {
-          return await getTwitchFollowedChannels({
+          const followedChannels = await getTwitchFollowedChannels({
             accessToken,
             userId: account.twitchUserId,
             first: input?.first,
             after: input?.after,
           });
+          const users = followedChannels.data.length > 0
+            ? await getTwitchUsersByIds(followedChannels.data.map((channel) => channel.broadcaster_id))
+            : { data: [] };
+          const profileImagesById = new Map(
+            users.data.map((user) => [user.id, user.profile_image_url]),
+          );
+
+          return {
+            ...followedChannels,
+            data: followedChannels.data.map((channel) => ({
+              ...channel,
+              profile_image_url: profileImagesById.get(channel.broadcaster_id) ?? '',
+            })),
+          };
         } catch (error) {
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
             message: error instanceof Error ? error.message : 'Twitch followed channels request failed',
           });
         }
+      }),
+    savedChannels: protectedProcedure.query(async ({ ctx }) => {
+      return db
+        .select({
+          broadcasterId: twitchSavedChannels.broadcasterId,
+          login: twitchSavedChannels.login,
+          displayName: twitchSavedChannels.displayName,
+        })
+        .from(twitchSavedChannels)
+        .where(eq(twitchSavedChannels.userId, ctx.user.id))
+        .orderBy(desc(twitchSavedChannels.createdAt));
+    }),
+    saveChannel: protectedProcedure
+      .input(z.object({
+        broadcasterId: z.string().min(1).max(64),
+        login: z.string().min(1).max(64),
+        displayName: z.string().min(1).max(128),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await db.insert(twitchSavedChannels).values({
+          userId: ctx.user.id,
+          ...input,
+        }).onConflictDoNothing();
+      }),
+    unsaveChannel: protectedProcedure
+      .input(z.object({ broadcasterId: z.string().min(1).max(64) }))
+      .mutation(async ({ ctx, input }) => {
+        await db.delete(twitchSavedChannels).where(and(
+          eq(twitchSavedChannels.userId, ctx.user.id),
+          eq(twitchSavedChannels.broadcasterId, input.broadcasterId),
+        ));
       }),
     videos: baseProcedure
       .input(
