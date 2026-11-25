@@ -103,7 +103,6 @@ def main() -> None:
                     collected_at,
                     Jsonb({
                         **stream,
-                        "recommendation_score": stream["two_tower_score"],
                         "recommendation_model": "two_tower",
                     }),
                 )

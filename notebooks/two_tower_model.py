@@ -14,6 +14,9 @@ EMBEDDING_SIZE = 32
 NEGATIVES_PER_POSITIVE = 4
 EPOCHS = 40
 TOP_K = 50
+MODEL_SCORE_WEIGHT = 0.1
+CATEGORY_MATCH_WEIGHT = 0.7
+FOLLOWED_CHANNEL_WEIGHT = 0.2
 
 
 def clean_token(value: object) -> str:
@@ -258,16 +261,38 @@ def recommend(
         item_embeddings = model.encode_items(item_token_ids, numeric_values)
         scores = (item_embeddings @ user_embedding.squeeze(0)).tolist()
 
-    ranked = sorted(
-        zip(scores, candidates),
-        key=lambda item: (item[0], float(item[1].get("viewer_count") or 0)),
+    ranked = []
+    for model_score, stream in zip(scores, candidates):
+        category_match = (
+            bool(stream.get("game_id"))
+            and str(stream.get("game_id")) in followed_games
+        )
+        followed_channel = str(stream.get("user_id")) in followed_ids
+        normalized_model_score = min(max((model_score + 1) / 2, 0), 1)
+        recommendation_score = (
+            CATEGORY_MATCH_WEIGHT * category_match
+            + FOLLOWED_CHANNEL_WEIGHT * followed_channel
+            + MODEL_SCORE_WEIGHT * normalized_model_score
+        )
+        ranked.append((recommendation_score, model_score, stream))
+
+    ranked.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+            float(item[2].get("viewer_count") or 0),
+        ),
         reverse=True,
-    )[:top_k]
+    )
+    ranked = ranked[:top_k]
     return [
         {
             **stream,
-            "two_tower_score": float(score),
+            "two_tower_score": float(model_score),
+            "recommendation_score": float(recommendation_score),
             "rank": rank,
         }
-        for rank, (score, stream) in enumerate(ranked, start=1)
+        for rank, (recommendation_score, model_score, stream) in enumerate(
+            ranked, start=1
+        )
     ]
