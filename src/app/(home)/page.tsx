@@ -14,15 +14,18 @@ interface PageProps {
 
 const Page = async ({ searchParams }: PageProps) => {
   const { categoryId, search } = await searchParams;
-  void trpc.twitch.topGames.prefetch({ first: 10 })
-  if (categoryId) {
-    void trpc.twitch.popularStreams.prefetch({ first: 50, gameId: categoryId });
-  } else {
-    void trpc.twitch.recommendationStreams.prefetch({ first: 50 });
+  const queries = [trpc.twitch.topGames.prefetch({ first: 10 })];
+  if (!search) {
+    queries.push(
+      categoryId
+        ? trpc.twitch.popularStreams.prefetch({ first: 50, gameId: categoryId })
+        : trpc.twitch.recommendationStreams.prefetch({ first: 50 }),
+    );
   }
+  await Promise.all(queries);
   return (
     <HydrateClient>
-      <HomeView categoryId={categoryId}/>
+      {!search && <HomeView categoryId={categoryId}/>}
       <TwitchHome categoryId={categoryId} searchTerm={search} />
 
     </HydrateClient>

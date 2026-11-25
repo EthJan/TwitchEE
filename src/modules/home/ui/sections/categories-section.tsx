@@ -28,7 +28,7 @@ const CategoriesSectionSuspense = ({categoryId}: CategoriesSectionProps) => {
     const trpcUtils = trpc.useUtils();
     const [categories] = trpc.twitch.topGames.useSuspenseQuery(
         { first: 10 },
-        { refetchInterval: 30_000, refetchOnWindowFocus: true },
+        { refetchInterval: 15_000, refetchOnWindowFocus: true },
     );
     
     const data = categories.data.map(({name, id}) => ({

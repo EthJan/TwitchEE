@@ -103,6 +103,22 @@ export async function gatherTwitchUserSnapshot(userId: string) {
       first: 100,
     }),
   ]);
+  const followedGameCounts = new Map<string, number>();
+  for (const stream of streams.data) {
+    if (stream.game_id) {
+      followedGameCounts.set(
+        stream.game_id,
+        (followedGameCounts.get(stream.game_id) ?? 0) + 1,
+      );
+    }
+  }
+  const followedGames = [...followedGameCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([gameId]) => gameId);
+  const categoryResponses = await Promise.all(
+    followedGames.map((gameId) => getTwitchStreams({ first: 50, gameId })),
+  );
   const collectedAt = new Date();
   const records = [
     ...channels.data.map((payload) => ({
@@ -119,6 +135,17 @@ export async function gatherTwitchUserSnapshot(userId: string) {
       collectedAt,
       payload,
     })),
+    ...categoryResponses.flatMap((response) =>
+      response.data
+        .filter((payload) => payload.type === 'live')
+        .map((payload) => ({
+          userId,
+          dataset: 'followed_category_streams',
+          recordKey: `${payload.game_id}:${payload.id}`,
+          collectedAt,
+          payload,
+        })),
+    ),
   ];
 
   if (records.length > 0) {

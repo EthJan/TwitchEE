@@ -5,24 +5,34 @@ sanitized snapshots from Postgres and never handles Twitch credentials.
 """
 
 import json
-import math
 import os
 from datetime import datetime, timezone
 
 import psycopg
 from psycopg.types.json import Jsonb
+from two_tower_model import recommend
 
 
-def latest_context(connection, user_id: str, dataset: str) -> list[dict]:
+def latest_context(
+    connection,
+    user_id: str,
+    dataset: str,
+    fresh_minutes: int | None = None,
+) -> list[dict]:
     with connection.cursor() as cursor:
-        cursor.execute(
-            """
+        query = """
             SELECT DISTINCT ON (record_key) payload
             FROM twitch_user_context_records
             WHERE user_id = %s AND dataset = %s
-            ORDER BY record_key, collected_at DESC
-            """,
-            (user_id, dataset),
+        """
+        params = (user_id, dataset)
+        if fresh_minutes is not None:
+            query += " AND collected_at > NOW() - (%s * INTERVAL '1 minute')"
+            params += (fresh_minutes,)
+        query += " ORDER BY record_key, collected_at DESC"
+        cursor.execute(
+            query,
+            params,
         )
         return [row[0] for row in cursor.fetchall()]
 
@@ -38,34 +48,6 @@ def live_streams(connection) -> list[dict]:
             """
         )
         return [row[0] for row in cursor.fetchall()]
-
-
-def recommend(streams: list[dict], channels: list[dict], followed_streams: list[dict]):
-    followed_ids = {str(row.get("broadcaster_id")) for row in channels}
-    followed_games = {
-        str(row.get("game_id"))
-        for row in followed_streams
-        if row.get("game_id")
-    }
-
-    ranked = []
-    for stream in streams:
-        score = math.log1p(max(int(stream.get("viewer_count", 0)), 0))
-        if str(stream.get("user_id")) in followed_ids:
-            score += 10
-        if str(stream.get("game_id")) in followed_games:
-            score += 3
-        ranked.append((score, stream))
-
-    ranked.sort(key=lambda item: item[0], reverse=True)
-    return [
-        {
-            **stream,
-            "recommendation_score": score,
-            "rank": rank,
-        }
-        for rank, (score, stream) in enumerate(ranked[:50], start=1)
-    ]
 
 
 def main() -> None:
@@ -89,16 +71,43 @@ def main() -> None:
         streams = live_streams(connection)
         total = 0
         for user_id in user_ids:
-            recommendations = recommend(
-                streams,
-                latest_context(connection, user_id, "followed_channels"),
-                latest_context(connection, user_id, "followed_streams"),
+            followed_channels = latest_context(
+                connection, user_id, "followed_channels"
             )
-            if not recommendations:
+            followed_streams = latest_context(
+                connection, user_id, "followed_streams", fresh_minutes=10
+            )
+            category_streams = latest_context(
+                connection,
+                user_id,
+                "followed_category_streams",
+                fresh_minutes=10,
+            )
+            candidates = {
+                str(stream["id"]): stream
+                for stream in (*streams, *followed_streams, *category_streams)
+                if stream.get("id")
+            }
+            two_tower_recommendations = recommend(
+                list(candidates.values()),
+                followed_channels,
+                followed_streams,
+                user_id=user_id,
+            )
+            if not two_tower_recommendations:
                 continue
             rows = [
-                (user_id, str(stream["id"]), collected_at, Jsonb(stream))
-                for stream in recommendations
+                (
+                    user_id,
+                    str(stream["id"]),
+                    collected_at,
+                    Jsonb({
+                        **stream,
+                        "recommendation_score": stream["two_tower_score"],
+                        "recommendation_model": "two_tower",
+                    }),
+                )
+                for stream in two_tower_recommendations
             ]
             with connection.cursor() as cursor:
                 cursor.executemany(

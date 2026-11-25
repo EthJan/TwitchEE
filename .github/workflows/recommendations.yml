@@ -42,7 +42,7 @@ jobs:
           cache: "pip"
 
       - name: Install recommendation worker dependencies
-        run: python -m pip install "psycopg[binary]==3.2.3"
+        run: python -m pip install "numpy==2.2.1" "psycopg[binary]==3.2.3" "torch==2.6.0"
 
       - name: Generate personalized recommendations
         run: python notebooks/run_user_recommendations.py

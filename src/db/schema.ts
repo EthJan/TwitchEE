@@ -23,6 +23,17 @@ export const twitchAccounts = pgTable("twitch_accounts", {
     updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
 
+export const twitchSavedChannels = pgTable("twitch_saved_channels", {
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    broadcasterId: text("broadcaster_id").notNull(),
+    login: text("login").notNull(),
+    displayName: text("display_name").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+    primaryKey({ columns: [t.userId, t.broadcasterId] }),
+    index("twitch_saved_channels_user_created_idx").on(t.userId, t.createdAt),
+]);
+
 export const categories = pgTable("categories", {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
@@ -36,7 +47,7 @@ export const twitchRecommendationRecords = pgTable("twitch_recommendation_record
     recordKey: text("record_key").notNull(),
     collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
-}, (t) => [primaryKey({ columns: [t.dataset, t.recordKey, t.collectedAt] })]);
+}, (t) => [primaryKey({ name: "twitch_recommendation_records_pkey", columns: [t.dataset, t.recordKey, t.collectedAt] })]);
 
 export const twitchCurrentStreams = pgTable("twitch_current_streams", {
     id: text("id").primaryKey(),
@@ -52,7 +63,7 @@ export const twitchUserContextRecords = pgTable("twitch_user_context_records", {
     collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
 }, (t) => [
-    primaryKey({ columns: [t.userId, t.dataset, t.recordKey, t.collectedAt] }),
+    primaryKey({ name: "twitch_user_context_records_user_id_dataset_record_key_collecte", columns: [t.userId, t.dataset, t.recordKey, t.collectedAt] }),
     index("twitch_user_context_records_user_dataset_idx").on(t.userId, t.dataset),
 ]);
 
@@ -62,6 +73,6 @@ export const twitchUserRecommendationRecords = pgTable("twitch_user_recommendati
     collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
 }, (t) => [
-    primaryKey({ columns: [t.userId, t.recordKey, t.collectedAt] }),
+    primaryKey({ name: "twitch_user_recommendation_records_user_id_record_key_collected", columns: [t.userId, t.recordKey, t.collectedAt] }),
     index("twitch_user_recommendations_user_collected_idx").on(t.userId, t.collectedAt),
 ]);

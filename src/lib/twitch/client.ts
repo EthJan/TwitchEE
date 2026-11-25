@@ -66,6 +66,25 @@ export type TwitchGame = {
   name: string;
 };
 
+export type TwitchCategory = {
+  id: string;
+  name: string;
+  box_art_url: string;
+};
+
+export type TwitchChannel = {
+  id: string;
+  broadcaster_language: string;
+  display_name: string;
+  game_id: string;
+  game_name: string;
+  is_live: boolean;
+  tags: string[];
+  title: string;
+  started_at: string;
+  thumbnail_url: string;
+};
+
 type TwitchResponse<T> = {
   data: T[];
   pagination: {
@@ -129,7 +148,7 @@ async function twitchRequest<T>(path: string, searchParams: URLSearchParams) {
       Authorization: `Bearer ${token.accessToken}`,
       'Client-Id': clientId,
     },
-    next: { revalidate: 30 },
+    next: { revalidate: 15 },
   });
 
   if (!response.ok) {
@@ -144,6 +163,13 @@ export async function getTwitchUserByLogin(login: string) {
   const params = new URLSearchParams({ login });
   const response = await twitchRequest<TwitchResponse<TwitchUser>>('/users', params);
   return response.data[0] ?? null;
+}
+
+export async function getTwitchUsersByIds(userIds: string[]) {
+  const params = new URLSearchParams();
+  userIds.forEach((userId) => params.append('id', userId));
+
+  return twitchRequest<TwitchResponse<TwitchUser>>('/users', params);
 }
 
 export async function exchangeTwitchAuthorizationCode(code: string, redirectUri: string) {
@@ -260,11 +286,13 @@ export async function getTwitchStreams(options: {
   first?: number;
   language?: string;
   gameId?: string;
+  userIds?: string[];
 }) {
   const params = new URLSearchParams();
   if (options.first) params.set("first", String(options.first));
   if (options.language) params.set("language", options.language);
   if (options.gameId) params.set("game_id", options.gameId);
+  options.userIds?.forEach((userId) => params.append("user_id", userId));
 
   return twitchRequest<TwitchResponse<TwitchStream>>('/streams', params);
 }
@@ -272,6 +300,32 @@ export async function getTwitchStreams(options: {
 export async function getTwitchTopGames(first = 10) {
   const params = new URLSearchParams({ first: String(first) });
   return twitchRequest<TwitchResponse<TwitchGame>>('/games/top', params);
+}
+
+export async function searchTwitchChannels(options: {
+  query: string;
+  first?: number;
+  after?: string;
+  liveOnly?: boolean;
+}) {
+  const params = new URLSearchParams({ query: options.query });
+  if (options.first) params.set('first', String(options.first));
+  if (options.after) params.set('after', options.after);
+  if (options.liveOnly) params.set('live_only', 'true');
+
+  return twitchRequest<TwitchResponse<TwitchChannel>>('/search/channels', params);
+}
+
+export async function searchTwitchCategories(options: {
+  query: string;
+  first?: number;
+  after?: string;
+}) {
+  const params = new URLSearchParams({ query: options.query });
+  if (options.first) params.set('first', String(options.first));
+  if (options.after) params.set('after', options.after);
+
+  return twitchRequest<TwitchResponse<TwitchCategory>>('/search/categories', params);
 }
 
 export async function getTwitchVideos(options: {
