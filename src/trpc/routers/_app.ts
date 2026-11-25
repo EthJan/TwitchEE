@@ -44,6 +44,41 @@ function recommendationStreamFromPayload(payload: Record<string, unknown>): Twit
 export const appRouter = createTRPCRouter({
   categories: categoriesRouter,
   twitch: createTRPCRouter({
+    twoTowerStreams: protectedProcedure
+      .input(z.object({ first: z.number().int().min(1).max(50).optional() }).optional())
+      .query(async ({ input, ctx }) => {
+        const first = input?.first ?? 12;
+        const result = await db.execute(sql`
+          WITH latest_snapshot AS (
+            SELECT MAX(${twitchUserRecommendationRecords.collectedAt}) AS collected_at
+            FROM ${twitchUserRecommendationRecords}
+            WHERE ${twitchUserRecommendationRecords.userId} = ${ctx.user.id}
+              AND ${twitchUserRecommendationRecords.payload}->>'recommendation_model' = 'two_tower'
+          )
+          SELECT ${twitchUserRecommendationRecords.payload} AS payload
+          FROM ${twitchUserRecommendationRecords}
+          LEFT JOIN ${twitchCurrentStreams}
+            ON ${twitchCurrentStreams.id} = ${twitchUserRecommendationRecords.recordKey}
+            AND ${twitchCurrentStreams.lastSeenAt} > ${publicStreamStaleBefore()}
+          JOIN latest_snapshot
+            ON ${twitchUserRecommendationRecords.collectedAt} = latest_snapshot.collected_at
+          WHERE ${twitchUserRecommendationRecords.userId} = ${ctx.user.id}
+            AND ${twitchUserRecommendationRecords.payload}->>'recommendation_model' = 'two_tower'
+            AND (
+              ${twitchCurrentStreams.id} IS NOT NULL
+              OR ${twitchUserRecommendationRecords.collectedAt} > ${publicStreamStaleBefore()}
+            )
+          ORDER BY COALESCE((${twitchUserRecommendationRecords.payload}->>'recommendation_score')::double precision, 0) DESC
+          LIMIT ${first}
+        `);
+
+        return {
+          data: result.rows.map((row) =>
+            recommendationStreamFromPayload(row.payload as Record<string, unknown>),
+          ),
+          pagination: {},
+        };
+      }),
     topGames: baseProcedure
       .input(z.object({ first: z.number().int().min(1).max(100).optional() }).optional())
       .query(async ({ input }) => {

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useAuth } from "@clerk/nextjs";
 import { trpc } from "@/trpc/client";
 import { SaveChannelButton } from "@/modules/home/ui/components/save-channel-button";
 
@@ -15,9 +16,10 @@ interface WatchSuggestionsProps {
 }
 
 export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
-    const suggestionsQuery = trpc.twitch.recommendationStreams.useQuery(
+    const { isLoaded, isSignedIn } = useAuth();
+    const suggestionsQuery = trpc.twitch.twoTowerStreams.useQuery(
         { first: 12 },
-        { refetchOnWindowFocus: false },
+        { enabled: isLoaded && isSignedIn === true, refetchOnWindowFocus: false },
     );
     const suggestions = (suggestionsQuery.data?.data ?? [])
         .filter((stream) => stream.user_login !== excludeLogin)
@@ -34,6 +36,10 @@ export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
 
             {suggestionsQuery.isError && (
                 <p className="text-sm text-slate-500">Suggestions are unavailable right now.</p>
+            )}
+
+            {isLoaded && !isSignedIn && (
+                <p className="text-sm text-slate-500">Sign in to see personalized stream suggestions.</p>
             )}
 
             {suggestions.length > 0 && (
@@ -78,8 +84,8 @@ export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
                 </div>
             )}
 
-            {!suggestionsQuery.isLoading && !suggestionsQuery.isError && suggestions.length === 0 && (
-                <p className="text-sm text-slate-500">No suggested streams are available right now.</p>
+            {isSignedIn && !suggestionsQuery.isLoading && !suggestionsQuery.isError && suggestions.length === 0 && (
+                <p className="text-sm text-slate-500">No two-tower recommendations are available right now.</p>
             )}
         </section>
     );
