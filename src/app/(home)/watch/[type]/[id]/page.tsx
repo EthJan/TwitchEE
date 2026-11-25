@@ -17,9 +17,13 @@ export default async function ViewerPage({ params }: ViewerPageProps) {
     if (type !== "stream" && type !== "video") notFound();
 
     const requestHeaders = await headers();
-    const configuredParent = process.env.TWITCH_EMBED_PARENT;
-    const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost";
-    const parent = configuredParent ?? host.split(":")[0];
+    const requestHost =
+        requestHeaders.get("x-forwarded-host")?.split(",")[0].trim() ??
+        requestHeaders.get("host") ??
+        process.env.VERCEL_URL;
+    const parent = requestHost
+        ? new URL(`http://${requestHost}`).hostname
+        : process.env.TWITCH_EMBED_PARENT ?? "localhost";
     const embedParams = new URLSearchParams({ parent });
 
     if (type === "stream") {

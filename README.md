@@ -58,7 +58,7 @@ After pushing the workflow to the repository's default branch, enable GitHub Act
 
 Manual user-triggered recommendation refresh is currently disabled. The scheduled GitHub Actions workflow continues to run every five minutes.
 
-Live stream and video cards open an in-app viewer using the Twitch embedded player. Set `TWITCH_EMBED_PARENT` to the production hostname when deploying.
+Live stream and video cards open an in-app viewer using the Twitch embedded player. The viewer derives Twitch's required `parent` parameter from the request hostname, so it works with production domains and Vercel preview URLs without extra configuration. Set `TWITCH_EMBED_PARENT` only if your deployment does not provide a request hostname.
 
 Then, run the development server:
 
