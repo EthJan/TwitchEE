@@ -85,6 +85,17 @@ export type TwitchChannel = {
   thumbnail_url: string;
 };
 
+export type TwitchChannelInfo = {
+  broadcaster_id: string;
+  broadcaster_language: string;
+  broadcaster_login: string;
+  broadcaster_name: string;
+  game_id: string;
+  game_name: string;
+  title: string;
+  tags: string[];
+};
+
 type TwitchResponse<T> = {
   data: T[];
   pagination: {
@@ -170,6 +181,13 @@ export async function getTwitchUsersByIds(userIds: string[]) {
   userIds.forEach((userId) => params.append('id', userId));
 
   return twitchRequest<TwitchResponse<TwitchUser>>('/users', params);
+}
+
+export async function getTwitchChannelsByIds(broadcasterIds: string[]) {
+  const params = new URLSearchParams();
+  broadcasterIds.forEach((broadcasterId) => params.append('broadcaster_id', broadcasterId));
+
+  return twitchRequest<TwitchResponse<TwitchChannelInfo>>('/channels', params);
 }
 
 export async function exchangeTwitchAuthorizationCode(code: string, redirectUri: string) {
@@ -286,12 +304,14 @@ export async function getTwitchStreams(options: {
   first?: number;
   language?: string;
   gameId?: string;
+  gameIds?: string[];
   userIds?: string[];
 }) {
   const params = new URLSearchParams();
   if (options.first) params.set("first", String(options.first));
   if (options.language) params.set("language", options.language);
   if (options.gameId) params.set("game_id", options.gameId);
+  options.gameIds?.forEach((gameId) => params.append("game_id", gameId));
   options.userIds?.forEach((userId) => params.append("user_id", userId));
 
   return twitchRequest<TwitchResponse<TwitchStream>>('/streams', params);

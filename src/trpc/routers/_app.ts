@@ -1,7 +1,7 @@
 import { categoriesRouter } from '@/modules/categories/server/procedures';
 import { baseProcedure, createTRPCRouter, protectedProcedure } from '../init';
 import { db } from '@/db';
-import { twitchAccounts, twitchCurrentStreams, twitchRecommendationRecords, twitchSavedChannels, twitchUserRecommendationRecords, users } from '@/db/schema';
+import { twitchAccounts, twitchCurrentStreams, twitchRecommendationRecords, twitchSavedChannels, twitchUserContextRecords, twitchUserRecommendationRecords, users } from '@/db/schema';
 import {
   getTwitchFollowedChannels,
   getTwitchFollowedStreams,
@@ -71,6 +71,75 @@ export const appRouter = createTRPCRouter({
           ORDER BY COALESCE((${twitchUserRecommendationRecords.payload}->>'recommendation_score')::double precision, 0) DESC
           LIMIT ${first}
         `);
+
+        if (result.rows.length > 0) {
+          return {
+            data: result.rows.map((row) =>
+              recommendationStreamFromPayload(row.payload as Record<string, unknown>),
+            ),
+            pagination: {},
+          };
+        }
+
+        const freshContextStreams = await db.execute(sql`
+          SELECT DISTINCT ON (
+            ${twitchUserContextRecords.dataset},
+            ${twitchUserContextRecords.recordKey}
+          ) ${twitchUserContextRecords.dataset} AS dataset,
+            ${twitchUserContextRecords.payload} AS payload
+          FROM ${twitchUserContextRecords}
+          WHERE ${twitchUserContextRecords.userId} = ${ctx.user.id}
+            AND ${twitchUserContextRecords.dataset} IN (
+              'followed_streams',
+              'followed_category_streams'
+            )
+            AND ${twitchUserContextRecords.collectedAt} > ${publicStreamStaleBefore()}
+          ORDER BY
+            ${twitchUserContextRecords.dataset},
+            ${twitchUserContextRecords.recordKey},
+            ${twitchUserContextRecords.collectedAt} DESC
+        `);
+        const seenStreamIds = new Set<string>();
+        const contextStreams = freshContextStreams.rows
+          .sort((a, b) => {
+            const aDataset = String(a.dataset);
+            const bDataset = String(b.dataset);
+            if (aDataset !== bDataset) {
+              return aDataset === 'followed_streams' ? -1 : 1;
+            }
+            const aPayload = a.payload as Record<string, unknown>;
+            const bPayload = b.payload as Record<string, unknown>;
+            return Number(bPayload.viewer_count ?? 0) - Number(aPayload.viewer_count ?? 0);
+          })
+          .map((row) => row.payload as Record<string, unknown>)
+          .filter((payload) => {
+            const streamId = String(payload.id ?? '');
+            if (!streamId || seenStreamIds.has(streamId)) return false;
+            seenStreamIds.add(streamId);
+            return true;
+          })
+          .slice(0, first)
+          .map(recommendationStreamFromPayload);
+
+        if (contextStreams.length > 0) {
+          return { data: contextStreams, pagination: {} };
+        }
+
+        const currentStreams = await db
+          .select()
+          .from(twitchCurrentStreams)
+          .where(gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()))
+          .orderBy(desc(twitchCurrentStreams.viewerCount))
+          .limit(first);
+
+        if (currentStreams.length > 0) {
+          return {
+            data: currentStreams.map(({ payload }) =>
+              recommendationStreamFromPayload(payload),
+            ),
+            pagination: {},
+          };
+        }
 
         return {
           data: result.rows.map((row) =>
@@ -209,10 +278,26 @@ export const appRouter = createTRPCRouter({
               LIMIT ${first}
             `);
             if (personalized.rows.length > 0) {
+              const personalizedStreams = personalized.rows.map((row) =>
+                recommendationStreamFromPayload(row.payload as Record<string, unknown>),
+              );
+              if (personalizedStreams.length < first) {
+                const fillStreams = await db
+                  .select()
+                  .from(twitchCurrentStreams)
+                  .where(gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()))
+                  .orderBy(desc(twitchCurrentStreams.viewerCount))
+                  .limit(first);
+                const seenIds = new Set(personalizedStreams.map((stream) => stream.id));
+                for (const stream of fillStreams) {
+                  if (seenIds.has(stream.id)) continue;
+                  personalizedStreams.push(recommendationStreamFromPayload(stream.payload));
+                  seenIds.add(stream.id);
+                  if (personalizedStreams.length >= first) break;
+                }
+              }
               return {
-                data: personalized.rows.map((row) =>
-                  recommendationStreamFromPayload(row.payload as Record<string, unknown>),
-                ),
+                data: personalizedStreams,
                 pagination: {},
               };
             }

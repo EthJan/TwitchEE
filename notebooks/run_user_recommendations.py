@@ -77,6 +77,12 @@ def main() -> None:
             followed_streams = latest_context(
                 connection, user_id, "followed_streams", fresh_minutes=10
             )
+            followed_channel_profiles = latest_context(
+                connection,
+                user_id,
+                "followed_channel_profiles",
+                fresh_minutes=10,
+            )
             category_streams = latest_context(
                 connection,
                 user_id,
@@ -93,6 +99,7 @@ def main() -> None:
                 followed_channels,
                 followed_streams,
                 user_id=user_id,
+                followed_channel_profiles=followed_channel_profiles,
             )
             if not two_tower_recommendations:
                 continue

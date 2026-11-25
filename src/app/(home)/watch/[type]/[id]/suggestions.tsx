@@ -19,7 +19,11 @@ export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
     const { isLoaded, isSignedIn } = useAuth();
     const suggestionsQuery = trpc.twitch.twoTowerStreams.useQuery(
         { first: 12 },
-        { enabled: isLoaded && isSignedIn === true, refetchOnWindowFocus: false },
+        {
+            enabled: isLoaded && isSignedIn === true,
+            refetchInterval: 60_000,
+            refetchOnWindowFocus: true,
+        },
     );
     const suggestions = (suggestionsQuery.data?.data ?? [])
         .filter((stream) => stream.user_login !== excludeLogin)

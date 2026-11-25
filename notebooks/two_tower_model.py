@@ -26,6 +26,7 @@ def clean_token(value: object) -> str:
 def build_user_tokens(
     followed_channels: list[dict],
     followed_streams: list[dict],
+    followed_channel_profiles: list[dict],
 ) -> list[str]:
     tokens = [
         f"channel:{clean_token(channel_id)}"
@@ -36,8 +37,19 @@ def build_user_tokens(
     ]
     tokens.extend(
         f"category:{clean_token(game_id)}"
-        for game_id in (row.get("game_id") for row in followed_streams)
+        for game_id in (
+            row.get("game_id")
+            for row in (*followed_streams, *followed_channel_profiles)
+        )
         if game_id is not None and str(game_id).strip()
+    )
+    tokens.extend(
+        f"category_name:{clean_token(game_name)}"
+        for game_name in (
+            row.get("game_name")
+            for row in (*followed_streams, *followed_channel_profiles)
+        )
+        if game_name is not None and str(game_name).strip()
     )
     return list(dict.fromkeys(tokens))
 
@@ -47,6 +59,7 @@ def build_item_tokens(stream: dict) -> list[str]:
     for column, prefix in (
         ("user_id", "channel"),
         ("game_id", "category"),
+        ("game_name", "category_name"),
         ("language", "language"),
     ):
         value = stream.get(column)
@@ -144,11 +157,17 @@ def recommend(
     followed_streams: list[dict],
     *,
     user_id: str,
+    followed_channel_profiles: list[dict] | None = None,
     now: datetime | None = None,
     top_k: int = TOP_K,
 ) -> list[dict]:
     """Train a per-user two-tower ranker from followed channels and categories."""
-    user_tokens = build_user_tokens(followed_channels, followed_streams)
+    followed_channel_profiles = followed_channel_profiles or []
+    user_tokens = build_user_tokens(
+        followed_channels,
+        followed_streams,
+        followed_channel_profiles,
+    )
     followed_ids = {
         str(row.get("broadcaster_id"))
         for row in followed_channels
@@ -156,23 +175,52 @@ def recommend(
     }
     followed_games = {
         str(row.get("game_id"))
-        for row in followed_streams
+        for row in (*followed_streams, *followed_channel_profiles)
         if row.get("game_id") is not None and str(row.get("game_id")).strip()
     }
+    followed_game_names = {
+        clean_token(row["game_name"])
+        for row in (*followed_streams, *followed_channel_profiles)
+        if row.get("game_name")
+    }
+    followed_categories_by_channel = {
+        str(row.get("broadcaster_id") or row.get("user_id")): (
+            str(row.get("game_id") or ""),
+            clean_token(row.get("game_name") or ""),
+        )
+        for row in followed_channel_profiles
+        if row.get("broadcaster_id") or row.get("user_id")
+    }
+    for row in followed_streams:
+        channel_id = str(row.get("user_id") or "")
+        if channel_id and channel_id not in followed_categories_by_channel:
+            followed_categories_by_channel[channel_id] = (
+                str(row.get("game_id") or ""),
+                clean_token(row.get("game_name") or ""),
+            )
+    followed_category_counts: dict[str, int] = {}
+    for game_id, game_name in followed_categories_by_channel.values():
+        category = game_id or f"name:{game_name}"
+        if category and category != "name:":
+            followed_category_counts[category] = (
+                followed_category_counts.get(category, 0) + 1
+            )
     candidates = list({str(stream.get("id")): stream for stream in streams}.values())
     positive_indices = [
         index for index, stream in enumerate(candidates)
         if (
             str(stream.get("user_id")) in followed_ids
             or (
-                bool(stream.get("game_id"))
-                and str(stream.get("game_id")) in followed_games
+                _matches_followed_category(
+                    stream, followed_games, followed_game_names
+                )
             )
         )
     ]
+    positive_index_set = set(positive_indices)
     negative_indices = [
-        index for index, stream in enumerate(candidates)
-        if str(stream.get("user_id")) not in followed_ids
+        index for index in range(len(candidates))
+        if index not in positive_index_set
     ]
     if not user_tokens or not positive_indices or not negative_indices:
         return []
@@ -263,14 +311,16 @@ def recommend(
 
     ranked = []
     for model_score, stream in zip(scores, candidates):
-        category_match = (
-            bool(stream.get("game_id"))
-            and str(stream.get("game_id")) in followed_games
+        category_strength = _followed_category_strength(
+            stream,
+            followed_games,
+            followed_game_names,
+            followed_category_counts,
         )
         followed_channel = str(stream.get("user_id")) in followed_ids
         normalized_model_score = min(max((model_score + 1) / 2, 0), 1)
         recommendation_score = (
-            CATEGORY_MATCH_WEIGHT * category_match
+            CATEGORY_MATCH_WEIGHT * category_strength
             + FOLLOWED_CHANNEL_WEIGHT * followed_channel
             + MODEL_SCORE_WEIGHT * normalized_model_score
         )
@@ -296,3 +346,33 @@ def recommend(
             ranked, start=1
         )
     ]
+
+
+def _matches_followed_category(
+    stream: dict,
+    followed_game_ids: set[str],
+    followed_game_names: set[str],
+) -> bool:
+    game_id = str(stream.get("game_id") or "")
+    game_name = clean_token(stream.get("game_name") or "")
+    return (
+        (bool(game_id) and game_id in followed_game_ids)
+        or (bool(game_name) and game_name in followed_game_names)
+    )
+
+
+def _followed_category_strength(
+    stream: dict,
+    followed_game_ids: set[str],
+    followed_game_names: set[str],
+    followed_category_counts: dict[str, int],
+) -> float:
+    if not _matches_followed_category(
+        stream, followed_game_ids, followed_game_names
+    ):
+        return 0.0
+    game_id = str(stream.get("game_id") or "")
+    game_name = clean_token(stream.get("game_name") or "")
+    category = game_id if game_id in followed_game_ids else f"name:{game_name}"
+    max_count = max(followed_category_counts.values(), default=1)
+    return followed_category_counts.get(category, 1) / max_count
