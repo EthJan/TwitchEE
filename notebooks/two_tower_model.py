@@ -14,9 +14,10 @@ EMBEDDING_SIZE = 32
 NEGATIVES_PER_POSITIVE = 4
 EPOCHS = 40
 TOP_K = 50
-MODEL_SCORE_WEIGHT = 0.1
-CATEGORY_MATCH_WEIGHT = 0.7
-FOLLOWED_CHANNEL_WEIGHT = 0.2
+MODEL_SCORE_WEIGHT = 0.05
+CATEGORY_MATCH_WEIGHT = 0.55
+STREAMER_CATEGORY_WEIGHT = 0.25
+FOLLOWED_CHANNEL_WEIGHT = 0.15
 
 
 def clean_token(value: object) -> str:
@@ -27,7 +28,13 @@ def build_user_tokens(
     followed_channels: list[dict],
     followed_streams: list[dict],
     followed_channel_profiles: list[dict],
+    streamer_category_history: dict[str, dict[str, int]],
 ) -> list[str]:
+    followed_ids = {
+        str(row.get("broadcaster_id"))
+        for row in followed_channels
+        if row.get("broadcaster_id") is not None
+    }
     tokens = [
         f"channel:{clean_token(channel_id)}"
         for channel_id in (
@@ -51,10 +58,19 @@ def build_user_tokens(
         )
         if game_name is not None and str(game_name).strip()
     )
+    tokens.extend(
+        f"category:{clean_token(game_id)}"
+        for channel_id in followed_ids
+        for game_id, count in streamer_category_history.get(channel_id, {}).items()
+        if count > 0 and str(game_id).strip()
+    )
     return list(dict.fromkeys(tokens))
 
 
-def build_item_tokens(stream: dict) -> list[str]:
+def build_item_tokens(
+    stream: dict,
+    streamer_category_history: dict[str, dict[str, int]] | None = None,
+) -> list[str]:
     tokens = []
     for column, prefix in (
         ("user_id", "channel"),
@@ -73,6 +89,15 @@ def build_item_tokens(stream: dict) -> list[str]:
             for tag in tags
             if tag is not None and str(tag).strip()
         )
+    history = (streamer_category_history or {}).get(
+        str(stream.get("user_id") or ""),
+        {},
+    )
+    tokens.extend(
+        f"category:{clean_token(game_id)}"
+        for game_id, count in history.items()
+        if count > 0 and str(game_id).strip()
+    )
     return list(dict.fromkeys(tokens))
 
 
@@ -158,15 +183,18 @@ def recommend(
     *,
     user_id: str,
     followed_channel_profiles: list[dict] | None = None,
+    streamer_category_history: dict[str, dict[str, int]] | None = None,
     now: datetime | None = None,
     top_k: int = TOP_K,
 ) -> list[dict]:
     """Train a per-user two-tower ranker from followed channels and categories."""
     followed_channel_profiles = followed_channel_profiles or []
+    streamer_category_history = streamer_category_history or {}
     user_tokens = build_user_tokens(
         followed_channels,
         followed_streams,
         followed_channel_profiles,
+        streamer_category_history,
     )
     followed_ids = {
         str(row.get("broadcaster_id"))
@@ -183,28 +211,42 @@ def recommend(
         for row in (*followed_streams, *followed_channel_profiles)
         if row.get("game_name")
     }
-    followed_categories_by_channel = {
-        str(row.get("broadcaster_id") or row.get("user_id")): (
-            str(row.get("game_id") or ""),
-            clean_token(row.get("game_name") or ""),
-        )
-        for row in followed_channel_profiles
-        if row.get("broadcaster_id") or row.get("user_id")
-    }
+    followed_categories_by_channel: dict[str, set[str]] = {}
+    for row in followed_channel_profiles:
+        channel_id = str(row.get("broadcaster_id") or row.get("user_id") or "")
+        if channel_id:
+            category = str(row.get("game_id") or "") or (
+                f"name:{clean_token(row.get('game_name') or '')}"
+            )
+            if category and category != "name:":
+                followed_categories_by_channel.setdefault(channel_id, set()).add(category)
     for row in followed_streams:
         channel_id = str(row.get("user_id") or "")
-        if channel_id and channel_id not in followed_categories_by_channel:
-            followed_categories_by_channel[channel_id] = (
-                str(row.get("game_id") or ""),
-                clean_token(row.get("game_name") or ""),
-            )
+        category = str(row.get("game_id") or "") or (
+            f"name:{clean_token(row.get('game_name') or '')}"
+        )
+        if channel_id and category and category != "name:":
+            followed_categories_by_channel.setdefault(channel_id, set()).add(category)
+    for channel_id in followed_ids:
+        followed_categories_by_channel.setdefault(channel_id, set()).update(
+            game_id
+            for game_id, count in streamer_category_history.get(channel_id, {}).items()
+            if count > 0 and game_id
+        )
     followed_category_counts: dict[str, int] = {}
-    for game_id, game_name in followed_categories_by_channel.values():
-        category = game_id or f"name:{game_name}"
-        if category and category != "name:":
+    for categories in followed_categories_by_channel.values():
+        for category in categories:
             followed_category_counts[category] = (
                 followed_category_counts.get(category, 0) + 1
             )
+    followed_games.update(
+        category for category in followed_category_counts if not category.startswith("name:")
+    )
+    followed_game_names.update(
+        category.removeprefix("name:")
+        for category in followed_category_counts
+        if category.startswith("name:")
+    )
     candidates = list({str(stream.get("id")): stream for stream in streams}.values())
     positive_indices = [
         index for index, stream in enumerate(candidates)
@@ -222,10 +264,13 @@ def recommend(
         index for index in range(len(candidates))
         if index not in positive_index_set
     ]
-    if not user_tokens or not positive_indices or not negative_indices:
+    if not user_tokens or not positive_indices:
         return []
 
-    item_sequences = [build_item_tokens(stream) for stream in candidates]
+    item_sequences = [
+        build_item_tokens(stream, streamer_category_history)
+        for stream in candidates
+    ]
     if any(not sequence for sequence in item_sequences):
         raise ValueError("Every live stream candidate needs channel metadata.")
 
@@ -267,47 +312,50 @@ def recommend(
         dtype=torch.float32,
     )
 
-    seed = int.from_bytes(
-        hashlib.sha256(user_id.encode("utf-8")).digest()[:4], "big"
-    )
-    torch.manual_seed(seed)
-    rng = np.random.default_rng(seed)
-    model = TwoTower(len(vocabulary) + 1, numeric_values.shape[1])
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-5)
-    loss_function = nn.BCEWithLogitsLoss(
-        pos_weight=torch.tensor(float(NEGATIVES_PER_POSITIVE))
-    )
+    if negative_indices:
+        seed = int.from_bytes(
+            hashlib.sha256(user_id.encode("utf-8")).digest()[:4], "big"
+        )
+        torch.manual_seed(seed)
+        rng = np.random.default_rng(seed)
+        model = TwoTower(len(vocabulary) + 1, numeric_values.shape[1])
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-5)
+        loss_function = nn.BCEWithLogitsLoss(
+            pos_weight=torch.tensor(float(NEGATIVES_PER_POSITIVE))
+        )
 
-    for _ in range(EPOCHS):
-        negative_sample_size = len(positive_indices) * NEGATIVES_PER_POSITIVE
-        sampled_negatives = rng.choice(
-            negative_indices,
-            size=negative_sample_size,
-            replace=len(negative_indices) < negative_sample_size,
-        )
-        training_indices = np.concatenate(
-            (positive_indices, sampled_negatives)
-        )
-        labels = torch.tensor(
-            [1.0] * len(positive_indices) + [0.0] * len(sampled_negatives),
-            dtype=torch.float32,
-        )
-        user_batch = user_token_ids.expand(len(training_indices), -1)
-        logits = model(
-            user_batch,
-            item_token_ids[torch.tensor(training_indices, dtype=torch.long)],
-            numeric_values[torch.tensor(training_indices, dtype=torch.long)],
-        )
-        loss = loss_function(logits, labels)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        for _ in range(EPOCHS):
+            negative_sample_size = len(positive_indices) * NEGATIVES_PER_POSITIVE
+            sampled_negatives = rng.choice(
+                negative_indices,
+                size=negative_sample_size,
+                replace=len(negative_indices) < negative_sample_size,
+            )
+            training_indices = np.concatenate(
+                (positive_indices, sampled_negatives)
+            )
+            labels = torch.tensor(
+                [1.0] * len(positive_indices) + [0.0] * len(sampled_negatives),
+                dtype=torch.float32,
+            )
+            user_batch = user_token_ids.expand(len(training_indices), -1)
+            logits = model(
+                user_batch,
+                item_token_ids[torch.tensor(training_indices, dtype=torch.long)],
+                numeric_values[torch.tensor(training_indices, dtype=torch.long)],
+            )
+            loss = loss_function(logits, labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-    model.eval()
-    with torch.no_grad():
-        user_embedding = model.encode_user(user_token_ids)
-        item_embeddings = model.encode_items(item_token_ids, numeric_values)
-        scores = (item_embeddings @ user_embedding.squeeze(0)).tolist()
+        model.eval()
+        with torch.no_grad():
+            user_embedding = model.encode_user(user_token_ids)
+            item_embeddings = model.encode_items(item_token_ids, numeric_values)
+            scores = (item_embeddings @ user_embedding.squeeze(0)).tolist()
+    else:
+        scores = [0.0] * len(candidates)
 
     ranked = []
     for model_score, stream in zip(scores, candidates):
@@ -317,10 +365,17 @@ def recommend(
             followed_game_names,
             followed_category_counts,
         )
+        streamer_category_strength = _streamer_category_strength(
+            stream,
+            followed_games,
+            followed_game_names,
+            streamer_category_history,
+        )
         followed_channel = str(stream.get("user_id")) in followed_ids
         normalized_model_score = min(max((model_score + 1) / 2, 0), 1)
         recommendation_score = (
             CATEGORY_MATCH_WEIGHT * category_strength
+            + STREAMER_CATEGORY_WEIGHT * streamer_category_strength
             + FOLLOWED_CHANNEL_WEIGHT * followed_channel
             + MODEL_SCORE_WEIGHT * normalized_model_score
         )
@@ -376,3 +431,25 @@ def _followed_category_strength(
     category = game_id if game_id in followed_game_ids else f"name:{game_name}"
     max_count = max(followed_category_counts.values(), default=1)
     return followed_category_counts.get(category, 1) / max_count
+
+
+def _streamer_category_strength(
+    stream: dict,
+    followed_game_ids: set[str],
+    followed_game_names: set[str],
+    streamer_category_history: dict[str, dict[str, int]],
+) -> float:
+    if not _matches_followed_category(
+        stream, followed_game_ids, followed_game_names
+    ):
+        return 0.0
+    history = streamer_category_history.get(str(stream.get("user_id") or ""), {})
+    total_streams = sum(history.values())
+    if total_streams <= 0:
+        return 0.0
+    game_id = str(stream.get("game_id") or "")
+    game_name = clean_token(stream.get("game_name") or "")
+    matching_streams = history.get(game_id, 0) if game_id else 0
+    if matching_streams == 0 and game_name:
+        matching_streams = history.get(f"name:{game_name}", 0)
+    return matching_streams / total_streams

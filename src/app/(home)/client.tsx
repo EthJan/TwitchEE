@@ -35,8 +35,6 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
     const { isLoaded, isSignedIn } = useAuth();
     const [now, setNow] = useState<number | null>(null);
     const [sortMode, setSortMode] = useState<"recommended" | "viewers-desc" | "viewers-asc">("recommended");
-    const [refreshStatus, setRefreshStatus] = useState<"idle" | "pending" | "queued">("idle");
-    const [refreshError, setRefreshError] = useState<string | null>(null);
     const { mutate: gatherPublicData } = trpc.twitch.gatherPublicData.useMutation();
     const { mutate: gatherUserData } = trpc.twitch.gatherUserData.useMutation();
     const trpcUtils = trpc.useUtils();
@@ -130,23 +128,6 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
         );
     }, [activeSortMode, liveStreamsQuery.data]);
 
-    const refreshRecommendations = async () => {
-        setRefreshStatus("pending");
-        setRefreshError(null);
-
-        try {
-            const response = await fetch("/api/recommendations/refresh", { method: "POST" });
-            if (!response.ok) {
-                const result = await response.json() as { error?: string };
-                throw new Error(result.error ?? `Refresh request failed (${response.status}).`);
-            }
-            setRefreshStatus("queued");
-        } catch (error) {
-            setRefreshStatus("idle");
-            setRefreshError(error instanceof Error ? error.message : "Unable to refresh recommendations.");
-        }
-    };
-
     return (
         <section className="border-b border-slate-200 bg-white text-slate-950">
             <div className="mx-auto max-w-[2400px] px-4 pt-3 pb-8">
@@ -170,15 +151,11 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                             {!subscriptions && !categoryId && !trending && isSignedIn && (
                                 <button
                                     type="button"
-                                    className="border border-slate-300 px-3 py-1 text-sm text-slate-700 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-                                    disabled={refreshStatus !== "idle"}
-                                    onClick={refreshRecommendations}
+                                    className="cursor-not-allowed border border-slate-300 px-3 py-1 text-sm text-slate-500 opacity-60"
+                                    disabled
+                                    title="Manual recommendation refresh is on the backlog"
                                 >
-                                    {refreshStatus === "pending"
-                                        ? "Queueing refresh..."
-                                        : refreshStatus === "queued"
-                                            ? "Refresh queued"
-                                            : "Refresh recommendations"}
+                                    Refresh recommendations
                                 </button>
                             )}
                             {liveStreamsQuery.data && liveStreamsQuery.data.data.length > 0 && (
@@ -200,17 +177,6 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                             )}
                         </div>
                     </div>
-
-                    {refreshError && (
-                        <p className="mb-3 text-sm text-red-600" role="alert">
-                            {refreshError}
-                        </p>
-                    )}
-                    {refreshStatus === "queued" && (
-                        <p className="mb-3 text-sm text-slate-500" role="status">
-                            The refresh workflow was queued. Updated recommendations will appear when it finishes.
-                        </p>
-                    )}
 
                     {liveStreamsQuery.isLoading && (
                         <p className="mt-3 text-sm text-slate-500">

@@ -56,7 +56,7 @@ Add these repository secrets under **Settings > Secrets and variables > Actions*
 
 After pushing the workflow to the repository's default branch, enable GitHub Actions if prompted. It will appear under **Actions** and can also be triggered manually with **Run workflow**. Scheduled runs can be delayed during GitHub Actions load; confirm the repository's included Actions minutes are sufficient, especially if it is private.
 
-Signed-in users can also queue the same workflow from the **Refresh recommendations** button. Configure `GITHUB_ACTIONS_DISPATCH_TOKEN` in the Vercel server environment with a fine-grained token that has **Actions: Read and write** permission for the repository. The app allows one user-triggered refresh every five minutes. `GITHUB_REPOSITORY` and `GITHUB_DEFAULT_BRANCH` are optional Vercel environment variables; they default to `EthJan/TwitchEE` and `main`.
+Manual user-triggered recommendation refresh is currently disabled. The scheduled GitHub Actions workflow continues to run every five minutes.
 
 Live stream and video cards open an in-app viewer using the Twitch embedded player. Set `TWITCH_EMBED_PARENT` to the production hostname when deploying.
 

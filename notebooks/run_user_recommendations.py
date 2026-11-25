@@ -50,6 +50,37 @@ def live_streams(connection) -> list[dict]:
         return [row[0] for row in cursor.fetchall()]
 
 
+def streamer_category_history(
+    connection,
+    broadcaster_ids: list[str],
+) -> dict[str, dict[str, int]]:
+    if not broadcaster_ids:
+        return {}
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                payload->>'user_id' AS broadcaster_id,
+                payload->>'game_id' AS game_id,
+                COUNT(*) AS stream_snapshots
+            FROM twitch_recommendation_records
+            WHERE dataset = 'live_streams_raw'
+              AND collected_at > NOW() - INTERVAL '30 days'
+              AND payload->>'user_id' = ANY(%s)
+              AND NULLIF(payload->>'game_id', '') IS NOT NULL
+            GROUP BY payload->>'user_id', payload->>'game_id'
+            """,
+            (broadcaster_ids,),
+        )
+        history: dict[str, dict[str, int]] = {}
+        for broadcaster_id, game_id, snapshots in cursor.fetchall():
+            history.setdefault(str(broadcaster_id), {})[str(game_id)] = int(
+                snapshots
+            )
+        return history
+
+
 def main() -> None:
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
@@ -94,12 +125,32 @@ def main() -> None:
                 for stream in (*streams, *followed_streams, *category_streams)
                 if stream.get("id")
             }
+            candidate_streams = list(candidates.values())
+            followed_broadcaster_ids = [
+                str(channel["broadcaster_id"])
+                for channel in followed_channels
+                if channel.get("broadcaster_id")
+            ]
+            category_history = streamer_category_history(
+                connection,
+                list(
+                    {
+                        *followed_broadcaster_ids,
+                        *(
+                            str(stream["user_id"])
+                            for stream in candidate_streams
+                            if stream.get("user_id")
+                        ),
+                    }
+                ),
+            )
             two_tower_recommendations = recommend(
-                list(candidates.values()),
+                candidate_streams,
                 followed_channels,
                 followed_streams,
                 user_id=user_id,
                 followed_channel_profiles=followed_channel_profiles,
+                streamer_category_history=category_history,
             )
             if not two_tower_recommendations:
                 continue
