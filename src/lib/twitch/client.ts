@@ -306,6 +306,7 @@ export async function getTwitchStreams(options: {
   gameId?: string;
   gameIds?: string[];
   userIds?: string[];
+  after?: string;
 }) {
   const params = new URLSearchParams();
   if (options.first) params.set("first", String(options.first));
@@ -313,6 +314,7 @@ export async function getTwitchStreams(options: {
   if (options.gameId) params.set("game_id", options.gameId);
   options.gameIds?.forEach((gameId) => params.append("game_id", gameId));
   options.userIds?.forEach((userId) => params.append("user_id", userId));
+  if (options.after) params.set("after", options.after);
 
   return twitchRequest<TwitchResponse<TwitchStream>>('/streams', params);
 }

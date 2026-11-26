@@ -118,6 +118,8 @@ export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
                                         broadcasterId={stream.user_id}
                                         login={stream.user_login}
                                         displayName={stream.user_name}
+                                        gameId={stream.game_id}
+                                        gameName={stream.game_name}
                                         className="absolute right-2 top-2 z-10 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-70"
                                     />
                                 )}

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { categoriesRouter } from '@/modules/categories/server/procedures';
 import { baseProcedure, createTRPCRouter, protectedProcedure } from '../init';
 import { db } from '@/db';
@@ -267,7 +268,12 @@ export const appRouter = createTRPCRouter({
         }
       }),
     popularStreams: baseProcedure
-      .input(z.object({ first: z.number().int().min(1).max(100).optional(), language: z.string().length(2).optional(), gameId: z.string().min(1).optional() }).optional())
+      .input(z.object({
+        first: z.number().int().min(1).max(100).optional(),
+        language: z.string().length(2).optional(),
+        gameId: z.string().min(1).optional(),
+        after: z.string().min(1).optional(),
+      }).optional())
       .query(async ({ input, ctx }) => {
         try {
           let language = input?.language;
@@ -282,6 +288,7 @@ export const appRouter = createTRPCRouter({
             first: input?.first,
             language,
             gameId: input?.gameId,
+            after: input?.after,
           });
         } catch (error) {
           throw new TRPCError({
@@ -544,20 +551,55 @@ export const appRouter = createTRPCRouter({
         broadcasterId: z.string().min(1).max(64),
         login: z.string().min(1).max(64),
         displayName: z.string().min(1).max(128),
+        gameId: z.string().max(64).optional(),
+        gameName: z.string().max(100).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        await db.insert(twitchSavedChannels).values({
-          userId: ctx.user.id,
-          ...input,
-        }).onConflictDoNothing();
+        const preference = {
+          broadcaster_id: input.broadcasterId,
+          broadcaster_login: input.login.toLowerCase(),
+          broadcaster_name: input.displayName,
+          game_id: input.gameId ?? "",
+          game_name: input.gameName ?? "",
+        };
+        await db.execute(sql`
+          WITH saved_channel AS (
+            INSERT INTO twitch_saved_channels
+              (user_id, broadcaster_id, login, display_name)
+            VALUES
+              (${ctx.user.id}, ${input.broadcasterId}, ${input.login}, ${input.displayName})
+            ON CONFLICT (user_id, broadcaster_id)
+            DO UPDATE SET
+              login = EXCLUDED.login,
+              display_name = EXCLUDED.display_name
+            RETURNING user_id, broadcaster_id
+          )
+          INSERT INTO twitch_user_context_records
+            (user_id, dataset, record_key, collected_at, payload)
+          SELECT
+            user_id,
+            'saved_channels',
+            ${randomUUID()},
+            ${new Date()},
+            ${JSON.stringify(preference)}::jsonb
+          FROM saved_channel
+        `);
       }),
     unsaveChannel: protectedProcedure
       .input(z.object({ broadcasterId: z.string().min(1).max(64) }))
       .mutation(async ({ ctx, input }) => {
-        await db.delete(twitchSavedChannels).where(and(
-          eq(twitchSavedChannels.userId, ctx.user.id),
-          eq(twitchSavedChannels.broadcasterId, input.broadcasterId),
-        ));
+        await db.execute(sql`
+          WITH deleted_saved_channel AS (
+            DELETE FROM twitch_saved_channels
+            WHERE user_id = ${ctx.user.id}
+              AND broadcaster_id = ${input.broadcasterId}
+            RETURNING user_id
+          )
+          DELETE FROM twitch_user_context_records
+          WHERE user_id = ${ctx.user.id}
+            AND dataset = 'saved_channels'
+            AND payload->>'broadcaster_id' = ${input.broadcasterId}
+        `);
       }),
     videos: baseProcedure
       .input(

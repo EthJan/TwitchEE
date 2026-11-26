@@ -2,7 +2,7 @@
 
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { FlameIcon, HomeIcon, PlaySquareIcon, ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, Clapperboard, FlameIcon, HomeIcon, PlaySquareIcon } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -13,6 +13,11 @@ const items = [
         url: "/",
         icon: HomeIcon,
 
+    },
+    {
+        title: "Scroll",
+        url: "/scroll",
+        icon: Clapperboard,
     },
     {
         title: "Following",

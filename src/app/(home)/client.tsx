@@ -268,6 +268,8 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                                             broadcasterId={stream.user_id}
                                             login={stream.user_login}
                                             displayName={stream.user_name}
+                                            gameId={stream.game_id}
+                                            gameName={stream.game_name}
                                             className="absolute right-2 top-2 z-10 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-70"
                                         />
                                     </div>
@@ -397,6 +399,8 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                                                             broadcasterId={channel.id}
                                                             login={channel.display_name.toLowerCase()}
                                                             displayName={channel.display_name}
+                                                            gameId={channel.stream?.game_id ?? channel.game_id}
+                                                            gameName={channel.stream?.game_name ?? channel.game_name}
                                                             className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-900 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
                                                         />
                                                     </div>
@@ -448,6 +452,8 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                                                 broadcasterId={channel.id}
                                                 login={channel.display_name.toLowerCase()}
                                                 displayName={channel.display_name}
+                                                gameId={channel.game_id}
+                                                gameName={channel.game_name}
                                                 className="absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-70"
                                             />
                                         </article>

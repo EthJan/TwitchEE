@@ -9,6 +9,9 @@ interface SaveChannelButtonProps {
     broadcasterId: string;
     login: string;
     displayName: string;
+    gameId?: string;
+    gameName?: string;
+    onPreferenceChange?: (isSaved: boolean) => void;
     className?: string;
 }
 
@@ -16,6 +19,9 @@ export const SaveChannelButton = ({
     broadcasterId,
     login,
     displayName,
+    gameId,
+    gameName,
+    onPreferenceChange,
     className,
 }: SaveChannelButtonProps) => {
     const clerk = useClerk();
@@ -25,11 +31,17 @@ export const SaveChannelButton = ({
         enabled: isSignedIn === true,
     });
     const saveChannel = trpc.twitch.saveChannel.useMutation({
-        onSuccess: () => trpcUtils.twitch.savedChannels.invalidate(),
+        onSuccess: () => {
+            void trpcUtils.twitch.savedChannels.invalidate();
+            onPreferenceChange?.(true);
+        },
         onError: (error) => toast.error(`Could not save channel: ${error.message}`),
     });
     const unsaveChannel = trpc.twitch.unsaveChannel.useMutation({
-        onSuccess: () => trpcUtils.twitch.savedChannels.invalidate(),
+        onSuccess: () => {
+            void trpcUtils.twitch.savedChannels.invalidate();
+            onPreferenceChange?.(false);
+        },
         onError: (error) => toast.error(`Could not remove saved channel: ${error.message}`),
     });
 
@@ -46,7 +58,7 @@ export const SaveChannelButton = ({
         if (isSaved) {
             unsaveChannel.mutate({ broadcasterId });
         } else {
-            saveChannel.mutate({ broadcasterId, login, displayName });
+            saveChannel.mutate({ broadcasterId, login, displayName, gameId, gameName });
         }
     };
 

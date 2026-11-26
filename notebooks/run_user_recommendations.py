@@ -123,6 +123,43 @@ def watch_time_history(connection, user_id: str) -> list[dict]:
         ]
 
 
+def saved_channel_preferences(connection, user_id: str) -> list[dict]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                saved.broadcaster_id,
+                saved.login,
+                saved.display_name,
+                COALESCE(preference.payload->>'game_id', '') AS game_id,
+                COALESCE(preference.payload->>'game_name', '') AS game_name
+            FROM twitch_saved_channels AS saved
+            LEFT JOIN LATERAL (
+                SELECT payload
+                FROM twitch_user_context_records
+                WHERE user_id = saved.user_id
+                  AND dataset = 'saved_channels'
+                  AND payload->>'broadcaster_id' = saved.broadcaster_id
+                ORDER BY collected_at DESC
+                LIMIT 1
+            ) AS preference ON TRUE
+            WHERE saved.user_id = %s
+            ORDER BY saved.created_at DESC
+            """,
+            (user_id,),
+        )
+        return [
+            {
+                "broadcaster_id": broadcaster_id,
+                "broadcaster_login": login,
+                "broadcaster_name": display_name,
+                "game_id": game_id or "",
+                "game_name": game_name or "",
+            }
+            for broadcaster_id, login, display_name, game_id, game_name in cursor.fetchall()
+        ]
+
+
 def main() -> None:
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
@@ -137,7 +174,11 @@ def main() -> None:
                 user_ids = [requested_user_id]
             else:
                 cursor.execute(
-                    "SELECT DISTINCT user_id FROM twitch_user_context_records"
+                    """
+                    SELECT user_id FROM twitch_user_context_records
+                    UNION
+                    SELECT user_id FROM twitch_saved_channels
+                    """
                 )
                 user_ids = [str(row[0]) for row in cursor.fetchall()]
 
@@ -157,6 +198,7 @@ def main() -> None:
                 fresh_minutes=10,
             )
             user_watch_time = watch_time_history(connection, user_id)
+            user_saved_channels = saved_channel_preferences(connection, user_id)
             category_streams = latest_context(
                 connection,
                 user_id,
@@ -179,6 +221,7 @@ def main() -> None:
                 list(
                     {
                         *followed_broadcaster_ids,
+                        *(str(channel["broadcaster_id"]) for channel in user_saved_channels),
                         *(
                             str(stream["user_id"])
                             for stream in candidate_streams
@@ -195,6 +238,7 @@ def main() -> None:
                 followed_channel_profiles=followed_channel_profiles,
                 streamer_category_history=category_history,
                 watch_time_history=user_watch_time,
+                saved_channels=user_saved_channels,
             )
             if not two_tower_recommendations:
                 continue

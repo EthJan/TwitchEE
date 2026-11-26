@@ -31,16 +31,24 @@ def build_user_tokens(
     followed_channel_profiles: list[dict],
     streamer_category_history: dict[str, dict[str, int]],
     watch_time_history: list[dict] | None = None,
+    saved_channels: list[dict] | None = None,
 ) -> list[str]:
+    saved_channels = saved_channels or []
     followed_ids = {
         str(row.get("broadcaster_id"))
         for row in followed_channels
         if row.get("broadcaster_id") is not None
     }
+    saved_ids = {
+        str(row.get("broadcaster_id"))
+        for row in saved_channels
+        if row.get("broadcaster_id") is not None
+    }
     tokens = [
         f"channel:{clean_token(channel_id)}"
         for channel_id in (
-            row.get("broadcaster_id") for row in followed_channels
+            row.get("broadcaster_id")
+            for row in (*followed_channels, *saved_channels)
         )
         if channel_id is not None and str(channel_id).strip()
     ]
@@ -62,7 +70,17 @@ def build_user_tokens(
     )
     tokens.extend(
         f"category:{clean_token(game_id)}"
-        for channel_id in followed_ids
+        for game_id in (row.get("game_id") for row in saved_channels)
+        if game_id is not None and str(game_id).strip()
+    )
+    tokens.extend(
+        f"category_name:{clean_token(game_name)}"
+        for game_name in (row.get("game_name") for row in saved_channels)
+        if game_name is not None and str(game_name).strip()
+    )
+    tokens.extend(
+        f"category:{clean_token(game_id)}"
+        for channel_id in followed_ids | saved_ids
         for game_id, count in streamer_category_history.get(channel_id, {}).items()
         if count > 0 and str(game_id).strip()
     )
@@ -205,20 +223,23 @@ def recommend(
     followed_channel_profiles: list[dict] | None = None,
     streamer_category_history: dict[str, dict[str, int]] | None = None,
     watch_time_history: list[dict] | None = None,
+    saved_channels: list[dict] | None = None,
     language: str | None = None,
     now: datetime | None = None,
     top_k: int = TOP_K,
 ) -> list[dict]:
-    """Train a per-user two-tower ranker from followed channels and categories."""
+    """Rank live streams from follows, saved channels, categories, and watch time."""
     followed_channel_profiles = followed_channel_profiles or []
     streamer_category_history = streamer_category_history or {}
     watch_time_history = watch_time_history or []
+    saved_channels = saved_channels or []
     user_tokens = build_user_tokens(
         followed_channels,
         followed_streams,
         followed_channel_profiles,
         streamer_category_history,
         watch_time_history,
+        saved_channels,
     )
     followed_ids = {
         str(row.get("broadcaster_id"))
@@ -235,23 +256,46 @@ def recommend(
         for row in (*followed_streams, *followed_channel_profiles)
         if row.get("game_name")
     }
+    saved_ids = {
+        str(row.get("broadcaster_id"))
+        for row in saved_channels
+        if row.get("broadcaster_id") is not None
+    }
+    preferred_channel_ids = followed_ids | saved_ids
+    followed_games.update(
+        str(row["game_id"])
+        for row in saved_channels
+        if row.get("game_id")
+    )
+    followed_game_names.update(
+        clean_token(row["game_name"])
+        for row in saved_channels
+        if row.get("game_name")
+    )
     followed_categories_by_channel: dict[str, set[str]] = {}
     for row in followed_channel_profiles:
         channel_id = str(row.get("broadcaster_id") or row.get("user_id") or "")
         if channel_id:
             category = str(row.get("game_id") or "") or (
-                f"name:{clean_token(row.get('game_name') or '')}"
+                    f"name:{clean_token(row.get('game_name') or '')}"
             )
             if category and category != "name:":
-                followed_categories_by_channel.setdefault(channel_id, set()).add(category)
+                    followed_categories_by_channel.setdefault(channel_id, set()).add(category)
     for row in followed_streams:
         channel_id = str(row.get("user_id") or "")
         category = str(row.get("game_id") or "") or (
-            f"name:{clean_token(row.get('game_name') or '')}"
+                f"name:{clean_token(row.get('game_name') or '')}"
         )
         if channel_id and category and category != "name:":
-            followed_categories_by_channel.setdefault(channel_id, set()).add(category)
-    for channel_id in followed_ids:
+                followed_categories_by_channel.setdefault(channel_id, set()).add(category)
+    for row in saved_channels:
+        channel_id = str(row.get("broadcaster_id") or "")
+        category = str(row.get("game_id") or "") or (
+                f"name:{clean_token(row.get('game_name') or '')}"
+        )
+        if channel_id and category and category != "name:":
+                followed_categories_by_channel.setdefault(channel_id, set()).add(category)
+    for channel_id in preferred_channel_ids:
         followed_categories_by_channel.setdefault(channel_id, set()).update(
             game_id
             for game_id, count in streamer_category_history.get(channel_id, {}).items()
@@ -283,6 +327,7 @@ def recommend(
         index for index, stream in enumerate(candidates)
         if (
             str(stream.get("user_id")) in followed_ids
+            or str(stream.get("user_id")) in saved_ids
             or (
                 _matches_followed_category(
                     stream, followed_games, followed_game_names
@@ -404,7 +449,7 @@ def recommend(
             streamer_category_history,
         )
         watch_time_strength = _watch_time_strength(stream, watch_time_history)
-        followed_channel = str(stream.get("user_id")) in followed_ids
+        followed_channel = str(stream.get("user_id")) in preferred_channel_ids
         normalized_model_score = min(max((model_score + 1) / 2, 0), 1)
         if watch_time_history:
             recommendation_score = (
