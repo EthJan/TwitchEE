@@ -171,7 +171,7 @@ const SearchForm = ({ initialValue }: { initialValue: string }) => {
             <button
                 type="submit"
                 aria-label="Search"
-                className="px-5 py-2 bg-gray-100 border border-l-0 rounded-r-full hover:bg-gray-200"
+                className="rounded-r-full border border-l-0 bg-gray-100 px-3 py-2 hover:bg-gray-200 sm:px-5"
             >
                 <SearchIcon className="size-5" />
             </button>

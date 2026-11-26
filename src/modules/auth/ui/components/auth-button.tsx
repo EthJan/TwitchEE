@@ -19,10 +19,11 @@ export const AuthButton = () => {
         <SignInButton mode="modal">
             <Button
                 variant="outline"
-                className="rounded-full border-blue-500/20 px-3 py-2 text-sm font-medium text-blue-600 shadow-none hover:text-blue-500 [&_svg]:size-4"
+                aria-label="Sign in"
+                className="h-9 w-9 shrink-0 rounded-full border-blue-500/20 px-0 py-0 text-sm font-medium text-blue-600 shadow-none hover:text-blue-500 sm:w-auto sm:px-3 sm:py-2 [&_svg]:size-4"
             >
                 <UserCircleIcon />
-                Sign in
+                <span className="hidden sm:inline">Sign in</span>
             </Button>
         </SignInButton>
     );
