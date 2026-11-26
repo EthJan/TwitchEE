@@ -31,6 +31,8 @@ type ChatInteraction = {
     startHeight: number;
 };
 
+const SCROLL_ONBOARDING_STORAGE_KEY = "twitch-scroll-onboarding-seen";
+
 export const ScrollView = () => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const chatRef = useRef<HTMLDivElement>(null);
@@ -40,6 +42,8 @@ export const ScrollView = () => {
     const [parentHost, setParentHost] = useState<string>();
     const [ready, setReady] = useState(false);
     const [chatOpen, setChatOpen] = useState(false);
+    const [showStreamDetails, setShowStreamDetails] = useState(false);
+    const [showScrollInstructions, setShowScrollInstructions] = useState(false);
     const [mobileChatExpanded, setMobileChatExpanded] = useState(false);
     const [chatPosition, setChatPosition] = useState<{ left: number; top: number }>();
     const [chatSize, setChatSize] = useState({ width: 360, height: 500 });
@@ -47,6 +51,14 @@ export const ScrollView = () => {
     useEffect(() => {
         setLanguage(getBrowserLanguage());
         setParentHost(window.location.hostname);
+        try {
+            setShowScrollInstructions(
+                window.localStorage.getItem(SCROLL_ONBOARDING_STORAGE_KEY) !== "true",
+            );
+        } catch (error) {
+            console.error("Unable to read scroll onboarding state", error);
+            setShowScrollInstructions(true);
+        }
         setReady(true);
     }, []);
 
@@ -125,6 +137,24 @@ export const ScrollView = () => {
         return [...currentAndSeen, ...rankedUpcoming];
     }, [activeIndex, savedPreferences, streams, watchTimeHistory]);
     const activeStream = orderedStreams[activeIndex];
+
+    useEffect(() => {
+        if (!showStreamDetails) return;
+        const timeout = window.setTimeout(() => setShowStreamDetails(false), 5_000);
+        return () => window.clearTimeout(timeout);
+    }, [activeStream?.id, showStreamDetails]);
+
+    const handleFeedScroll = () => {
+        setShowStreamDetails(false);
+        if (!showScrollInstructions) return;
+
+        setShowScrollInstructions(false);
+        try {
+            window.localStorage.setItem(SCROLL_ONBOARDING_STORAGE_KEY, "true");
+        } catch (error) {
+            console.error("Unable to save scroll onboarding state", error);
+        }
+    };
 
     const loadMoreStreams = useCallback(async () => {
         if (!ready || !hasMoreStreams || loadingMoreRef.current) return;
@@ -277,7 +307,7 @@ export const ScrollView = () => {
     };
 
     return (
-        <section className="relative h-[calc(100svh-4rem)] overflow-hidden bg-[#09090b] text-white">
+        <section className="relative h-[calc(100svh-4rem)] overflow-hidden bg-black text-white">
             {streamsQuery.isLoading && (
                 <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-300" role="status">
                     Finding live streams for you...
@@ -306,16 +336,26 @@ export const ScrollView = () => {
 
             {streams.length > 0 && (
                 <>
-                    <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent px-4 pb-8 pt-4 sm:px-8">
-                        <div>
-                            <p className="text-sm font-semibold tracking-wide">LIVE DISCOVERY</p>
-                            <p className="text-xs text-zinc-300">Scroll to find your next stream</p>
-                        </div>
-                    </header>
+                    {showScrollInstructions && (
+                        <>
+                            <header className="pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/70 to-transparent px-4 pb-10 pt-4 sm:px-8">
+                                <div className="w-fit rounded-lg bg-black/60 px-3 py-2 shadow-lg backdrop-blur-sm">
+                                    <p className="text-sm font-semibold tracking-wide">LIVE DISCOVERY</p>
+                                    <p className="text-xs text-zinc-300">Scroll to find your next stream</p>
+                                </div>
+                            </header>
+                            <div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center">
+                                <span className="rounded-full bg-black/55 px-4 py-2 text-sm font-medium text-white shadow-lg backdrop-blur-sm">
+                                    Scroll for next
+                                </span>
+                            </div>
+                        </>
+                    )}
 
                     <div
                         aria-label="Live streams"
                         className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                        onScroll={handleFeedScroll}
                         ref={scrollRef}
                         role="region"
                         tabIndex={0}
@@ -324,11 +364,11 @@ export const ScrollView = () => {
                             const isActive = index === activeIndex;
                             return (
                                 <article
-                                    className="flex h-full min-h-full snap-start snap-always flex-col items-center justify-center gap-4 px-3 pb-5 pt-16 sm:gap-5 sm:px-8"
+                                    className="relative h-full min-h-full snap-start snap-always overflow-hidden bg-black"
                                     data-stream-index={index}
                                     key={stream.id}
                                 >
-                                    <div className="relative aspect-video w-full max-w-5xl overflow-hidden rounded-xl bg-black shadow-2xl shadow-black/40">
+                                    <div className="absolute inset-0 bg-black">
                                         {isActive && playerUrl ? (
                                             <iframe
                                                 allow="autoplay; fullscreen"
@@ -347,89 +387,97 @@ export const ScrollView = () => {
                                                 width={1280}
                                             />
                                         )}
-                                        <span className="absolute left-3 top-3 rounded bg-red-600 px-2.5 py-1 text-xs font-bold tracking-wide">
-                                            LIVE
-                                        </span>
-                                        <span className="absolute bottom-3 left-3 rounded bg-black/70 px-2.5 py-1 text-xs font-medium">
-                                            {stream.viewer_count.toLocaleString("en-US")} watching
-                                        </span>
                                     </div>
 
-                                    <div className="w-full max-w-5xl">
-                                        <div className="flex items-start justify-between gap-4">
-                                            <div className="min-w-0">
-                                                <p className="truncate text-sm font-semibold text-violet-300">{stream.user_name}</p>
-                                                <h1 className="mt-1 line-clamp-2 text-base font-semibold sm:text-lg">{stream.title}</h1>
-                                                <p className="mt-1 truncate text-sm text-zinc-400">
-                                                    {stream.game_name || "Just Chatting"}
-                                                </p>
-                                            </div>
-                                            {isActive && (
-                                                <div className="flex shrink-0 flex-col gap-2">
-                                                    <WatchTimeTracker
-                                                        broadcasterId={stream.user_id}
-                                                        broadcasterLogin={stream.user_login}
-                                                        gameId={stream.game_id}
-                                                        gameName={stream.game_name}
-                                                        minimumWatchSeconds={5}
-                                                    />
-                                                    <SaveChannelButton
-                                                        broadcasterId={stream.user_id}
-                                                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 text-xs font-medium hover:bg-white/20"
-                                                        displayName={stream.user_name}
-                                                        gameId={stream.game_id}
-                                                        gameName={stream.game_name}
-                                                        login={stream.user_login}
-                                                        onPreferenceChange={(isSaved) => {
-                                                            setSavedPreferences((current) => {
-                                                                const withoutChannel = current.filter(
-                                                                    (preference) => preference.broadcasterId !== stream.user_id,
-                                                                );
-                                                                return isSaved
-                                                                    ? [...withoutChannel, {
-                                                                        broadcasterId: stream.user_id,
-                                                                        gameId: stream.game_id,
-                                                                        gameName: stream.game_name,
-                                                                    }]
-                                                                    : withoutChannel;
-                                                            });
-                                                        }}
-                                                    />
-                                                    <button
-                                                        aria-pressed={chatOpen}
-                                                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-violet-600 px-3 text-xs font-semibold hover:bg-violet-500"
-                                                        onClick={() => setChatOpen((open) => !open)}
-                                                        type="button"
-                                                    >
-                                                        <MessageCircle aria-hidden="true" size={16} />
-                                                        {chatOpen ? "Hide chat" : "Chat"}
-                                                    </button>
+                                    {isActive && (
+                                        <>
+                                            <WatchTimeTracker
+                                                broadcasterId={stream.user_id}
+                                                broadcasterLogin={stream.user_login}
+                                                gameId={stream.game_id}
+                                                gameName={stream.game_name}
+                                                minimumWatchSeconds={5}
+                                            />
+                                            {!showStreamDetails && (
+                                                <button
+                                                    aria-label="Show stream details and controls"
+                                                    className="absolute inset-0 z-10 cursor-default bg-transparent"
+                                                    onClick={() => setShowStreamDetails(true)}
+                                                    type="button"
+                                                />
+                                            )}
+                                            {showStreamDetails && (
+                                                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-4 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pb-6 pt-32 sm:px-8 sm:pb-8">
+                                                    <div className="pointer-events-auto min-w-0 flex-1">
+                                                        <div className="mb-3 flex items-center gap-2">
+                                                            <span className="rounded bg-red-600 px-2.5 py-1 text-xs font-bold tracking-wide">
+                                                                LIVE
+                                                            </span>
+                                                            <span className="rounded bg-black/60 px-2.5 py-1 text-xs font-medium">
+                                                                {stream.viewer_count.toLocaleString("en-US")} watching
+                                                            </span>
+                                                        </div>
+                                                        <p className="truncate text-sm font-semibold text-violet-300">{stream.user_name}</p>
+                                                        <h1 className="mt-1 line-clamp-2 text-base font-semibold sm:text-lg">{stream.title}</h1>
+                                                        <p className="mt-1 truncate text-sm text-zinc-300">
+                                                            {stream.game_name || "Just Chatting"}
+                                                        </p>
+                                                    </div>
+                                                    <div className="pointer-events-auto flex shrink-0 flex-col gap-2">
+                                                        <SaveChannelButton
+                                                            broadcasterId={stream.user_id}
+                                                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-white/20 bg-black/50 px-3 text-xs font-medium backdrop-blur-sm hover:bg-white/20"
+                                                            displayName={stream.user_name}
+                                                            gameId={stream.game_id}
+                                                            gameName={stream.game_name}
+                                                            login={stream.user_login}
+                                                            onPreferenceChange={(isSaved) => {
+                                                                setSavedPreferences((current) => {
+                                                                    const withoutChannel = current.filter(
+                                                                        (preference) => preference.broadcasterId !== stream.user_id,
+                                                                    );
+                                                                    return isSaved
+                                                                        ? [...withoutChannel, {
+                                                                            broadcasterId: stream.user_id,
+                                                                            gameId: stream.game_id,
+                                                                            gameName: stream.game_name,
+                                                                        }]
+                                                                        : withoutChannel;
+                                                                });
+                                                            }}
+                                                        />
+                                                        <button
+                                                            aria-pressed={chatOpen}
+                                                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-violet-600 px-3 text-xs font-semibold hover:bg-violet-500"
+                                                            onClick={() => setChatOpen((open) => !open)}
+                                                            type="button"
+                                                        >
+                                                            <MessageCircle aria-hidden="true" size={16} />
+                                                            {chatOpen ? "Hide chat" : "Chat"}
+                                                        </button>
+                                                        <button
+                                                            aria-label="Previous stream"
+                                                            className="inline-flex size-10 items-center justify-center rounded-full border border-white/20 bg-black/50 text-zinc-200 hover:bg-white/10 disabled:opacity-40"
+                                                            disabled={index === 0}
+                                                            onClick={() => scrollToStream(index - 1)}
+                                                            type="button"
+                                                        >
+                                                            <ChevronUp aria-hidden="true" size={20} />
+                                                        </button>
+                                                        <button
+                                                            aria-label="Next stream"
+                                                            className="inline-flex size-10 items-center justify-center rounded-full border border-white/20 bg-black/50 text-zinc-200 hover:bg-white/10 disabled:opacity-40"
+                                                            disabled={index === streams.length - 1}
+                                                            onClick={() => scrollToStream(index + 1)}
+                                                            type="button"
+                                                        >
+                                                            <ChevronDown aria-hidden="true" size={20} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             )}
-                                        </div>
-                                    </div>
-
-                                    <div aria-label="Stream navigation" className="flex items-center gap-3" role="group">
-                                        <button
-                                            aria-label="Previous stream"
-                                            className="inline-flex size-10 items-center justify-center rounded-full border border-white/20 text-zinc-200 hover:bg-white/10 disabled:opacity-40"
-                                            disabled={index === 0}
-                                            onClick={() => scrollToStream(index - 1)}
-                                            type="button"
-                                        >
-                                            <ChevronUp aria-hidden="true" size={20} />
-                                        </button>
-                                        <span className="text-xs text-zinc-500">Scroll for next</span>
-                                        <button
-                                            aria-label="Next stream"
-                                            className="inline-flex size-10 items-center justify-center rounded-full border border-white/20 text-zinc-200 hover:bg-white/10 disabled:opacity-40"
-                                            disabled={index === streams.length - 1}
-                                            onClick={() => scrollToStream(index + 1)}
-                                            type="button"
-                                        >
-                                            <ChevronDown aria-hidden="true" size={20} />
-                                        </button>
-                                    </div>
+                                        </>
+                                    )}
                                 </article>
                             );
                         })}

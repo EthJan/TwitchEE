@@ -32,6 +32,8 @@ jobs:
         run: npm run lint
 
       - name: Run production build
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
         run: npm run build
 
       - name: Set up Python
