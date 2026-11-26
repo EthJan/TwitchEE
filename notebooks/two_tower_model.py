@@ -18,6 +18,7 @@ MODEL_SCORE_WEIGHT = 0.05
 CATEGORY_MATCH_WEIGHT = 0.55
 STREAMER_CATEGORY_WEIGHT = 0.25
 FOLLOWED_CHANNEL_WEIGHT = 0.15
+WATCH_TIME_WEIGHT = 0.55
 
 
 def clean_token(value: object) -> str:
@@ -29,6 +30,7 @@ def build_user_tokens(
     followed_streams: list[dict],
     followed_channel_profiles: list[dict],
     streamer_category_history: dict[str, dict[str, int]],
+    watch_time_history: list[dict] | None = None,
 ) -> list[str]:
     followed_ids = {
         str(row.get("broadcaster_id"))
@@ -64,7 +66,25 @@ def build_user_tokens(
         for game_id, count in streamer_category_history.get(channel_id, {}).items()
         if count > 0 and str(game_id).strip()
     )
-    return list(dict.fromkeys(tokens))
+    watch_token_seconds: dict[str, float] = {}
+    for row in watch_time_history or []:
+        seconds = max(float(row.get("watch_seconds") or 0), 0.0)
+        if seconds <= 0:
+            continue
+        for value, prefix in (
+            (row.get("broadcaster_id"), "channel"),
+            (row.get("game_id"), "category"),
+            (row.get("game_name"), "category_name"),
+        ):
+            if value is not None and str(value).strip():
+                token = f"{prefix}:{clean_token(value)}"
+                watch_token_seconds[token] = watch_token_seconds.get(token, 0) + seconds
+
+    tokens = list(dict.fromkeys(tokens))
+    for token, seconds in watch_token_seconds.items():
+        repetitions = min(10, max(1, math.ceil(math.log1p(seconds))))
+        tokens.extend([token] * repetitions)
+    return tokens
 
 
 def build_item_tokens(
@@ -184,6 +204,7 @@ def recommend(
     user_id: str,
     followed_channel_profiles: list[dict] | None = None,
     streamer_category_history: dict[str, dict[str, int]] | None = None,
+    watch_time_history: list[dict] | None = None,
     language: str | None = None,
     now: datetime | None = None,
     top_k: int = TOP_K,
@@ -191,11 +212,13 @@ def recommend(
     """Train a per-user two-tower ranker from followed channels and categories."""
     followed_channel_profiles = followed_channel_profiles or []
     streamer_category_history = streamer_category_history or {}
+    watch_time_history = watch_time_history or []
     user_tokens = build_user_tokens(
         followed_channels,
         followed_streams,
         followed_channel_profiles,
         streamer_category_history,
+        watch_time_history,
     )
     followed_ids = {
         str(row.get("broadcaster_id"))
@@ -265,6 +288,7 @@ def recommend(
                     stream, followed_games, followed_game_names
                 )
             )
+            or _matches_watched_stream(stream, watch_time_history)
         )
     ]
     positive_index_set = set(positive_indices)
@@ -379,14 +403,24 @@ def recommend(
             followed_game_names,
             streamer_category_history,
         )
+        watch_time_strength = _watch_time_strength(stream, watch_time_history)
         followed_channel = str(stream.get("user_id")) in followed_ids
         normalized_model_score = min(max((model_score + 1) / 2, 0), 1)
-        recommendation_score = (
-            CATEGORY_MATCH_WEIGHT * category_strength
-            + STREAMER_CATEGORY_WEIGHT * streamer_category_strength
-            + FOLLOWED_CHANNEL_WEIGHT * followed_channel
-            + MODEL_SCORE_WEIGHT * normalized_model_score
-        )
+        if watch_time_history:
+            recommendation_score = (
+                WATCH_TIME_WEIGHT * watch_time_strength
+                + 0.20 * category_strength
+                + 0.10 * streamer_category_strength
+                + 0.10 * followed_channel
+                + MODEL_SCORE_WEIGHT * normalized_model_score
+            )
+        else:
+            recommendation_score = (
+                CATEGORY_MATCH_WEIGHT * category_strength
+                + STREAMER_CATEGORY_WEIGHT * streamer_category_strength
+                + FOLLOWED_CHANNEL_WEIGHT * followed_channel
+                + MODEL_SCORE_WEIGHT * normalized_model_score
+            )
         ranked.append((recommendation_score, model_score, stream))
 
     ranked.sort(
@@ -409,6 +443,50 @@ def recommend(
             ranked, start=1
         )
     ]
+
+
+def _matches_watched_stream(stream: dict, watch_time_history: list[dict]) -> bool:
+    stream_channel_id = str(stream.get("user_id") or "")
+    stream_game_id = str(stream.get("game_id") or "")
+    stream_game_name = clean_token(stream.get("game_name") or "")
+    return any(
+        float(row.get("watch_seconds") or 0) > 0
+        and (
+            (stream_channel_id and str(row.get("broadcaster_id") or "") == stream_channel_id)
+            or (stream_game_id and str(row.get("game_id") or "") == stream_game_id)
+            or (
+                stream_game_name
+                and clean_token(row.get("game_name") or "") == stream_game_name
+            )
+        )
+        for row in watch_time_history
+    )
+
+
+def _watch_time_strength(stream: dict, watch_time_history: list[dict]) -> float:
+    stream_channel_id = str(stream.get("user_id") or "")
+    stream_game_id = str(stream.get("game_id") or "")
+    stream_game_name = clean_token(stream.get("game_name") or "")
+    channel_seconds = 0.0
+    category_seconds = 0.0
+
+    for row in watch_time_history:
+        seconds = max(float(row.get("watch_seconds") or 0), 0.0)
+        if stream_channel_id and str(row.get("broadcaster_id") or "") == stream_channel_id:
+            channel_seconds += seconds
+        if (
+            (stream_game_id and str(row.get("game_id") or "") == stream_game_id)
+            or (
+                stream_game_name
+                and clean_token(row.get("game_name") or "") == stream_game_name
+            )
+        ):
+            category_seconds += seconds
+
+    def duration_strength(seconds: float) -> float:
+        return seconds / (seconds + 600)
+
+    return max(duration_strength(channel_seconds), 0.8 * duration_strength(category_seconds))
 
 
 def _matches_followed_category(

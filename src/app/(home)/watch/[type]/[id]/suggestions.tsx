@@ -5,6 +5,12 @@ import { useAuth } from "@clerk/nextjs";
 import { trpc } from "@/trpc/client";
 import { SaveChannelButton } from "@/modules/home/ui/components/save-channel-button";
 import { getBrowserLanguage } from "@/lib/browser-language";
+import {
+    rankStreamsByWatchTime,
+    readWatchTimeHistory,
+    watchTimeHistoryUpdatedEvent,
+    type WatchTimeHistoryEntry,
+} from "@/lib/watch-time-history";
 import { useEffect, useState } from "react";
 
 function getThumbnailUrl(url: string) {
@@ -21,42 +27,69 @@ export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
     const { isLoaded, isSignedIn } = useAuth();
     const [browserLanguage, setBrowserLanguage] = useState<string>();
     const [languageReady, setLanguageReady] = useState(false);
+    const [watchHistory, setWatchHistory] = useState<WatchTimeHistoryEntry[]>([]);
 
     useEffect(() => {
         setBrowserLanguage(getBrowserLanguage());
         setLanguageReady(true);
     }, []);
 
+    useEffect(() => {
+        const updateHistory = () => setWatchHistory(readWatchTimeHistory());
+        updateHistory();
+        const eventName = watchTimeHistoryUpdatedEvent();
+        window.addEventListener(eventName, updateHistory);
+        window.addEventListener("storage", updateHistory);
+        return () => {
+            window.removeEventListener(eventName, updateHistory);
+            window.removeEventListener("storage", updateHistory);
+        };
+    }, []);
+
     const suggestionsQuery = trpc.twitch.twoTowerStreams.useQuery(
-        { first: 12, language: browserLanguage },
+        { first: 50, language: browserLanguage },
         {
             enabled: isLoaded && isSignedIn === true && languageReady,
             refetchInterval: 60_000,
             refetchOnWindowFocus: true,
         },
     );
-    const suggestions = (suggestionsQuery.data?.data ?? [])
+    const publicSuggestionsQuery = trpc.twitch.recommendationStreams.useQuery(
+        { first: 50, language: browserLanguage },
+        {
+            enabled: isLoaded && isSignedIn === false && languageReady,
+            refetchInterval: 60_000,
+            refetchOnWindowFocus: true,
+        },
+    );
+    const activeQuery = isSignedIn ? suggestionsQuery : publicSuggestionsQuery;
+    const candidates = isSignedIn
+        ? suggestionsQuery.data?.data ?? []
+        : publicSuggestionsQuery.data?.data ?? [];
+    const suggestions = rankStreamsByWatchTime(candidates, watchHistory)
         .filter((stream) =>
             !browserLanguage || stream.language.toLowerCase() === browserLanguage,
         )
-        .filter((stream) => stream.user_login !== excludeLogin)
+        .filter((stream) => stream.user_login.toLowerCase() !== excludeLogin?.toLowerCase())
         .slice(0, 8);
 
     return (
         <section className="mt-8 border-t border-slate-200 pt-7" aria-labelledby="suggestions-heading">
             <div className="mb-4 flex items-center justify-between gap-3">
                 <h2 id="suggestions-heading" className="text-lg font-semibold">Suggested streams</h2>
-                {(suggestionsQuery.isLoading || !languageReady) && (
+                {(activeQuery.isLoading || !languageReady) && (
                     <span className="text-sm text-slate-500">Loading...</span>
                 )}
             </div>
 
-            {suggestionsQuery.isError && (
+            {activeQuery.isError && (
                 <p className="text-sm text-slate-500">Suggestions are unavailable right now.</p>
             )}
 
-            {isLoaded && !isSignedIn && (
-                <p className="text-sm text-slate-500">Sign in to see personalized stream suggestions.</p>
+            {isLoaded && !isSignedIn && watchHistory.length > 0 && (
+                <p className="mb-4 text-sm text-slate-500">
+                    Personalized with recent watch time stored on this device.
+                </p>
             )}
 
             {suggestions.length > 0 && (
@@ -80,12 +113,14 @@ export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
                                         LIVE
                                     </span>
                                 </a>
-                                <SaveChannelButton
-                                    broadcasterId={stream.user_id}
-                                    login={stream.user_login}
-                                    displayName={stream.user_name}
-                                    className="absolute right-2 top-2 z-10 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-70"
-                                />
+                                {isSignedIn && (
+                                    <SaveChannelButton
+                                        broadcasterId={stream.user_id}
+                                        login={stream.user_login}
+                                        displayName={stream.user_name}
+                                        className="absolute right-2 top-2 z-10 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-70"
+                                    />
+                                )}
                             </div>
                             <a className="block p-4" href={`/watch/stream/${encodeURIComponent(stream.user_login)}`}>
                                 <h3 className="line-clamp-2 font-medium group-hover:text-slate-600">{stream.title}</h3>
@@ -101,8 +136,13 @@ export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
                 </div>
             )}
 
-            {isSignedIn && !suggestionsQuery.isLoading && !suggestionsQuery.isError && suggestions.length === 0 && (
-                <p className="text-sm text-slate-500">No two-tower recommendations are available right now.</p>
+            {isLoaded && !activeQuery.isLoading && !activeQuery.isError && suggestions.length === 0 && (
+                <p className="text-sm text-slate-500">No live stream suggestions are available right now.</p>
+            )}
+            {isLoaded && !isSignedIn && watchHistory.length === 0 && suggestions.length > 0 && (
+                <p className="mt-4 text-sm text-slate-500">
+                    Watch a stream to personalize future suggestions on this device.
+                </p>
             )}
         </section>
     );

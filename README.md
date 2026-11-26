@@ -42,6 +42,8 @@ python notebooks/run_user_recommendations.py
 
 The scheduled GitHub Actions workflow runs this command every five minutes. It reads user context collected by the app from Postgres and writes user-scoped recommendations back to Postgres; it never receives Twitch tokens. Set `TWITCH_RECOMMENDATION_USER_ID` to process one user, or omit it to process every connected user.
 
+Foreground time on live-stream pages is recorded in short intervals and used to personalize recommendations for 30 days. Signed-in viewers' history is stored with their account and contributes 55% of the two-tower recommendation score; signed-out viewers' history stays in that browser and locally re-ranks public stream recommendations. Guest history does not sync across devices. Longer viewing increases affinity for both that streamer and the stream's category. Video pages and time spent in a background tab are not counted.
+
 Signed-in users can save channels from live stream cards and revisit them from **Saved channels** in the sidebar. Run `bunx drizzle-kit push` after pulling schema changes to create the saved-channels table.
 
 ## GitHub Actions schedule

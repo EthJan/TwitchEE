@@ -6,6 +6,12 @@ import Image from "next/image";
 import { trpc } from "@/trpc/client";
 import { SaveChannelButton } from "@/modules/home/ui/components/save-channel-button";
 import { getBrowserLanguage } from "@/lib/browser-language";
+import {
+    rankStreamsByWatchTime,
+    readWatchTimeHistory,
+    watchTimeHistoryUpdatedEvent,
+    type WatchTimeHistoryEntry,
+} from "@/lib/watch-time-history";
 
 function formatDate(date: string) {
     return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(date));
@@ -37,6 +43,7 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
     const [now, setNow] = useState<number | null>(null);
     const [browserLanguage, setBrowserLanguage] = useState<string>();
     const [languageReady, setLanguageReady] = useState(false);
+    const [watchHistory, setWatchHistory] = useState<WatchTimeHistoryEntry[]>([]);
     const [sortMode, setSortMode] = useState<"recommended" | "viewers-desc" | "viewers-asc">("recommended");
     const { mutate: gatherPublicData } = trpc.twitch.gatherPublicData.useMutation();
     const { mutate: gatherUserData } = trpc.twitch.gatherUserData.useMutation();
@@ -52,6 +59,18 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
     useEffect(() => {
         setBrowserLanguage(getBrowserLanguage());
         setLanguageReady(true);
+    }, []);
+
+    useEffect(() => {
+        const updateHistory = () => setWatchHistory(readWatchTimeHistory());
+        updateHistory();
+        const eventName = watchTimeHistoryUpdatedEvent();
+        window.addEventListener(eventName, updateHistory);
+        window.addEventListener("storage", updateHistory);
+        return () => {
+            window.removeEventListener(eventName, updateHistory);
+            window.removeEventListener("storage", updateHistory);
+        };
     }, []);
 
     useEffect(() => {
@@ -129,14 +148,16 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
         const streams = (liveStreamsQuery.data?.data ?? []).filter((stream) =>
             subscriptions || !browserLanguage || stream.language.toLowerCase() === browserLanguage,
         );
-        if (activeSortMode === "recommended") return streams;
+        if (activeSortMode === "recommended") {
+            return rankStreamsByWatchTime(streams, watchHistory);
+        }
 
         return [...streams].sort((a, b) =>
             activeSortMode === "viewers-desc"
                 ? b.viewer_count - a.viewer_count
                 : a.viewer_count - b.viewer_count,
         );
-    }, [activeSortMode, browserLanguage, liveStreamsQuery.data, subscriptions]);
+    }, [activeSortMode, browserLanguage, liveStreamsQuery.data, subscriptions, watchHistory]);
 
     return (
         <section className="border-b border-slate-200 bg-white text-slate-950">

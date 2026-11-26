@@ -23,6 +23,7 @@ def main() -> None:
     streams = load_jsonl(data_dir, "live_stream_features")
     followed_channels = load_jsonl(data_dir, "channels")
     followed_streams = load_jsonl(data_dir, "followed_streams")
+    watch_time_history = load_jsonl(data_dir, "watch_time_history")
 
     if streams.empty:
         raise FileNotFoundError(
@@ -48,6 +49,7 @@ def main() -> None:
         followed_channels.to_dict(orient="records"),
         followed_streams.to_dict(orient="records"),
         user_id="offline-notebook-user",
+        watch_time_history=watch_time_history.to_dict(orient="records"),
         top_k=TOP_K,
     )
     if not recommendations:

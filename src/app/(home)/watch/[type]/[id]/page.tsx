@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { getTwitchStreams, getTwitchUserByLogin } from "@/lib/twitch/client";
 import { WatchSuggestions } from "./suggestions";
+import { WatchTimeTracker } from "./watch-time-tracker";
 
 interface ViewerPageProps {
     params: Promise<{
@@ -15,6 +17,22 @@ export const dynamic = "force-dynamic";
 export default async function ViewerPage({ params }: ViewerPageProps) {
     const { type, id } = await params;
     if (type !== "stream" && type !== "video") notFound();
+
+    let watchStream: Awaited<ReturnType<typeof getTwitchStreams>>["data"][number] | undefined;
+    if (type === "stream") {
+        try {
+            const channel = await getTwitchUserByLogin(id);
+            if (channel) {
+                const response = await getTwitchStreams({
+                    first: 1,
+                    userIds: [channel.id],
+                });
+                watchStream = response.data.find((stream) => stream.type === "live");
+            }
+        } catch (error) {
+            console.error("Unable to resolve Twitch stream details for watch-time tracking", error);
+        }
+    }
 
     const requestHeaders = await headers();
     const requestHost =
@@ -69,6 +87,14 @@ export default async function ViewerPage({ params }: ViewerPageProps) {
                 </div>
                 <h1 className="mt-4 text-lg font-semibold sm:mt-5 sm:text-xl">{title}</h1>
                 <p className="mt-1 text-sm text-slate-500">Playing through the Twitch embedded player.</p>
+                {watchStream && (
+                    <WatchTimeTracker
+                        broadcasterId={watchStream.user_id}
+                        broadcasterLogin={watchStream.user_login}
+                        gameId={watchStream.game_id}
+                        gameName={watchStream.game_name}
+                    />
+                )}
                 <WatchSuggestions
                     excludeLogin={type === "stream" ? id : undefined}
                 />

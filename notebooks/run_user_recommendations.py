@@ -90,6 +90,39 @@ def streamer_category_history(
         return history
 
 
+def watch_time_history(connection, user_id: str) -> list[dict]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                payload->>'broadcaster_id' AS broadcaster_id,
+                payload->>'game_id' AS game_id,
+                payload->>'game_name' AS game_name,
+                SUM(COALESCE(NULLIF(payload->>'watch_seconds', '')::integer, 0))
+                    AS watch_seconds
+            FROM twitch_user_context_records
+            WHERE user_id = %s
+              AND dataset = 'watch_time'
+              AND collected_at > NOW() - INTERVAL '30 days'
+            GROUP BY
+                payload->>'broadcaster_id',
+                payload->>'game_id',
+                payload->>'game_name'
+            """,
+            (user_id,),
+        )
+        return [
+            {
+                "broadcaster_id": broadcaster_id,
+                "game_id": game_id,
+                "game_name": game_name,
+                "watch_seconds": int(seconds),
+            }
+            for broadcaster_id, game_id, game_name, seconds in cursor.fetchall()
+            if broadcaster_id and seconds and int(seconds) > 0
+        ]
+
+
 def main() -> None:
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
@@ -123,6 +156,7 @@ def main() -> None:
                 "followed_channel_profiles",
                 fresh_minutes=10,
             )
+            user_watch_time = watch_time_history(connection, user_id)
             category_streams = latest_context(
                 connection,
                 user_id,
@@ -160,6 +194,7 @@ def main() -> None:
                 user_id=user_id,
                 followed_channel_profiles=followed_channel_profiles,
                 streamer_category_history=category_history,
+                watch_time_history=user_watch_time,
             )
             if not two_tower_recommendations:
                 continue
