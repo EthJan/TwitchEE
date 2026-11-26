@@ -26,6 +26,15 @@ def latest_context(
             WHERE user_id = %s AND dataset = %s
         """
         params = (user_id, dataset)
+        if dataset in {"followed_channels", "followed_channel_profiles"}:
+            query += """
+                AND collected_at = (
+                    SELECT MAX(collected_at)
+                    FROM twitch_user_context_records
+                    WHERE user_id = %s AND dataset = %s
+                )
+            """
+            params += (user_id, dataset)
         if fresh_minutes is not None:
             query += " AND collected_at > NOW() - (%s * INTERVAL '1 minute')"
             params += (fresh_minutes,)

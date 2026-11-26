@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { trpc } from "@/trpc/client";
 import { SaveChannelButton } from "@/modules/home/ui/components/save-channel-button";
+import { getBrowserLanguage } from "@/lib/browser-language";
 
 function formatDate(date: string) {
     return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(date));
@@ -34,6 +35,8 @@ interface TwitchHomeProps {
 export const PageClient = ({ searchTerm, categoryId, subscriptions = false, trending = false }: TwitchHomeProps) => {
     const { isLoaded, isSignedIn } = useAuth();
     const [now, setNow] = useState<number | null>(null);
+    const [browserLanguage, setBrowserLanguage] = useState<string>();
+    const [languageReady, setLanguageReady] = useState(false);
     const [sortMode, setSortMode] = useState<"recommended" | "viewers-desc" | "viewers-asc">("recommended");
     const { mutate: gatherPublicData } = trpc.twitch.gatherPublicData.useMutation();
     const { mutate: gatherUserData } = trpc.twitch.gatherUserData.useMutation();
@@ -44,6 +47,11 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
         updateNow();
         const interval = window.setInterval(updateNow, 15_000);
         return () => window.clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        setBrowserLanguage(getBrowserLanguage());
+        setLanguageReady(true);
     }, []);
 
     useEffect(() => {
@@ -80,17 +88,17 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
         },
     );
     const recommendationStreamsQuery = trpc.twitch.recommendationStreams.useQuery(
-        { first: 50 },
+        { first: 50, language: browserLanguage },
         {
-            enabled: !searchTerm && !subscriptions && !categoryId,
+            enabled: languageReady && !searchTerm && !subscriptions && !categoryId,
             refetchInterval: 15_000,
             refetchOnWindowFocus: true,
         },
     );
     const popularStreamsQuery = trpc.twitch.popularStreams.useQuery(
-        { first: 50, gameId: categoryId },
+        { first: 50, gameId: categoryId, language: browserLanguage },
         {
-            enabled: !searchTerm && !subscriptions && (Boolean(categoryId) || trending),
+            enabled: languageReady && !searchTerm && !subscriptions && (Boolean(categoryId) || trending),
             refetchInterval: 15_000,
             refetchOnWindowFocus: true,
         },
@@ -118,7 +126,9 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
             : recommendationStreamsQuery;
     const activeSortMode = (categoryId || subscriptions || trending) && sortMode === "recommended" ? "viewers-desc" : sortMode;
     const sortedStreams = useMemo(() => {
-        const streams = liveStreamsQuery.data?.data ?? [];
+        const streams = (liveStreamsQuery.data?.data ?? []).filter((stream) =>
+            subscriptions || !browserLanguage || stream.language.toLowerCase() === browserLanguage,
+        );
         if (activeSortMode === "recommended") return streams;
 
         return [...streams].sort((a, b) =>
@@ -126,7 +136,7 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                 ? b.viewer_count - a.viewer_count
                 : a.viewer_count - b.viewer_count,
         );
-    }, [activeSortMode, liveStreamsQuery.data]);
+    }, [activeSortMode, browserLanguage, liveStreamsQuery.data, subscriptions]);
 
     return (
         <section className="border-b border-slate-200 bg-white text-slate-950">
@@ -178,10 +188,12 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                         </div>
                     </div>
 
-                    {liveStreamsQuery.isLoading && (
+                    {(liveStreamsQuery.isLoading || (!subscriptions && !searchTerm && !languageReady)) && (
                         <p className="mt-3 text-sm text-slate-500">
                             {subscriptions
                                 ? "Checking your followed channels for live streams..."
+                                : !languageReady
+                                    ? "Detecting your browser language..."
                                 : trending
                                     ? "Loading trending live streams..."
                                 : categoryId
@@ -198,7 +210,7 @@ export const PageClient = ({ searchTerm, categoryId, subscriptions = false, tren
                         </p>
                     )}
 
-                    {liveStreamsQuery.data && liveStreamsQuery.data.data.length === 0 && (
+                    {languageReady && liveStreamsQuery.data && sortedStreams.length === 0 && (
                         <div className="mt-3 border border-slate-200 bg-slate-50 px-5 py-6">
                             <p className="font-medium">
                                 {subscriptions ? "Nobody you follow is live right now." : "No live streams are available right now."}

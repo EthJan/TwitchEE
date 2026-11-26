@@ -184,6 +184,7 @@ def recommend(
     user_id: str,
     followed_channel_profiles: list[dict] | None = None,
     streamer_category_history: dict[str, dict[str, int]] | None = None,
+    language: str | None = None,
     now: datetime | None = None,
     top_k: int = TOP_K,
 ) -> list[dict]:
@@ -248,6 +249,13 @@ def recommend(
         if category.startswith("name:")
     )
     candidates = list({str(stream.get("id")): stream for stream in streams}.values())
+    if language:
+        normalized_language = language.strip().lower()
+        candidates = [
+            stream
+            for stream in candidates
+            if str(stream.get("language") or "").lower() == normalized_language
+        ]
     positive_indices = [
         index for index, stream in enumerate(candidates)
         if (

@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useAuth } from "@clerk/nextjs";
 import { trpc } from "@/trpc/client";
 import { SaveChannelButton } from "@/modules/home/ui/components/save-channel-button";
+import { getBrowserLanguage } from "@/lib/browser-language";
+import { useEffect, useState } from "react";
 
 function getThumbnailUrl(url: string) {
     return url
@@ -17,15 +19,26 @@ interface WatchSuggestionsProps {
 
 export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
     const { isLoaded, isSignedIn } = useAuth();
+    const [browserLanguage, setBrowserLanguage] = useState<string>();
+    const [languageReady, setLanguageReady] = useState(false);
+
+    useEffect(() => {
+        setBrowserLanguage(getBrowserLanguage());
+        setLanguageReady(true);
+    }, []);
+
     const suggestionsQuery = trpc.twitch.twoTowerStreams.useQuery(
-        { first: 12 },
+        { first: 12, language: browserLanguage },
         {
-            enabled: isLoaded && isSignedIn === true,
+            enabled: isLoaded && isSignedIn === true && languageReady,
             refetchInterval: 60_000,
             refetchOnWindowFocus: true,
         },
     );
     const suggestions = (suggestionsQuery.data?.data ?? [])
+        .filter((stream) =>
+            !browserLanguage || stream.language.toLowerCase() === browserLanguage,
+        )
         .filter((stream) => stream.user_login !== excludeLogin)
         .slice(0, 8);
 
@@ -33,7 +46,7 @@ export function WatchSuggestions({ excludeLogin }: WatchSuggestionsProps) {
         <section className="mt-8 border-t border-slate-200 pt-7" aria-labelledby="suggestions-heading">
             <div className="mb-4 flex items-center justify-between gap-3">
                 <h2 id="suggestions-heading" className="text-lg font-semibold">Suggested streams</h2>
-                {suggestionsQuery.isLoading && (
+                {(suggestionsQuery.isLoading || !languageReady) && (
                     <span className="text-sm text-slate-500">Loading...</span>
                 )}
             </div>

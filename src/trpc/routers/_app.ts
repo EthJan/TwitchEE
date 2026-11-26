@@ -40,14 +40,43 @@ function recommendationStreamFromPayload(payload: Record<string, unknown>): Twit
     is_mature: Boolean(payload.is_mature),
   };
 }
+
+async function getPreferredLanguage(userId: string): Promise<string | undefined> {
+  const result = await db.execute(sql`
+    WITH latest_snapshot AS (
+      SELECT MAX(${twitchUserContextRecords.collectedAt}) AS collected_at
+      FROM ${twitchUserContextRecords}
+      WHERE ${twitchUserContextRecords.userId} = ${userId}
+        AND ${twitchUserContextRecords.dataset} = 'followed_channel_profiles'
+    )
+    SELECT LOWER(${twitchUserContextRecords.payload}->>'broadcaster_language') AS language
+    FROM ${twitchUserContextRecords}
+    JOIN latest_snapshot
+      ON ${twitchUserContextRecords.collectedAt} = latest_snapshot.collected_at
+    WHERE ${twitchUserContextRecords.userId} = ${userId}
+      AND ${twitchUserContextRecords.dataset} = 'followed_channel_profiles'
+      AND NULLIF(${twitchUserContextRecords.payload}->>'broadcaster_language', '') IS NOT NULL
+    AND LENGTH(${twitchUserContextRecords.payload}->>'broadcaster_language') = 2
+    GROUP BY LOWER(${twitchUserContextRecords.payload}->>'broadcaster_language')
+    ORDER BY COUNT(DISTINCT ${twitchUserContextRecords.recordKey}) DESC,
+      MAX(${twitchUserContextRecords.collectedAt}) DESC
+    LIMIT 1
+  `);
+  const language = result.rows[0]?.language;
+  return typeof language === 'string' ? language : undefined;
+}
  
 export const appRouter = createTRPCRouter({
   categories: categoriesRouter,
   twitch: createTRPCRouter({
     twoTowerStreams: protectedProcedure
-      .input(z.object({ first: z.number().int().min(1).max(50).optional() }).optional())
+      .input(z.object({
+        first: z.number().int().min(1).max(50).optional(),
+        language: z.string().length(2).optional(),
+      }).optional())
       .query(async ({ input, ctx }) => {
         const first = input?.first ?? 12;
+        const language = input?.language ?? await getPreferredLanguage(ctx.user.id);
         const result = await db.execute(sql`
           WITH latest_snapshot AS (
             SELECT MAX(${twitchUserRecommendationRecords.collectedAt}) AS collected_at
@@ -68,6 +97,7 @@ export const appRouter = createTRPCRouter({
               ${twitchCurrentStreams.id} IS NOT NULL
               OR ${twitchUserRecommendationRecords.collectedAt} > ${publicStreamStaleBefore()}
             )
+            ${language ? sql`AND LOWER(${twitchUserRecommendationRecords.payload}->>'language') = ${language}` : sql``}
           ORDER BY COALESCE((${twitchUserRecommendationRecords.payload}->>'recommendation_score')::double precision, 0) DESC
           LIMIT ${first}
         `);
@@ -94,6 +124,7 @@ export const appRouter = createTRPCRouter({
               'followed_category_streams'
             )
             AND ${twitchUserContextRecords.collectedAt} > ${publicStreamStaleBefore()}
+            ${language ? sql`AND LOWER(${twitchUserContextRecords.payload}->>'language') = ${language}` : sql``}
           ORDER BY
             ${twitchUserContextRecords.dataset},
             ${twitchUserContextRecords.recordKey},
@@ -128,7 +159,12 @@ export const appRouter = createTRPCRouter({
         const currentStreams = await db
           .select()
           .from(twitchCurrentStreams)
-          .where(gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()))
+          .where(and(
+            gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()),
+            ...(language
+              ? [sql`LOWER(${twitchCurrentStreams.payload}->>'language') = ${language}`]
+              : []),
+          ))
           .orderBy(desc(twitchCurrentStreams.viewerCount))
           .limit(first);
 
@@ -232,11 +268,19 @@ export const appRouter = createTRPCRouter({
       }),
     popularStreams: baseProcedure
       .input(z.object({ first: z.number().int().min(1).max(100).optional(), language: z.string().length(2).optional(), gameId: z.string().min(1).optional() }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         try {
+          let language = input?.language;
+          if (!language && ctx.clerkUserId) {
+            const [user] = await db
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.clerkId, ctx.clerkUserId));
+            if (user) language = await getPreferredLanguage(user.id);
+          }
           return await getTwitchStreams({
             first: input?.first,
-            language: input?.language,
+            language,
             gameId: input?.gameId,
           });
         } catch (error) {
@@ -247,15 +291,20 @@ export const appRouter = createTRPCRouter({
         }
       }),
     recommendationStreams: baseProcedure
-      .input(z.object({ first: z.number().int().min(1).max(50).optional() }).optional())
+      .input(z.object({
+        first: z.number().int().min(1).max(50).optional(),
+        language: z.string().length(2).optional(),
+      }).optional())
       .query(async ({ input, ctx }) => {
         const first = input?.first ?? 50;
+        let language: string | undefined = input?.language;
         if (ctx.clerkUserId) {
           const [user] = await db
             .select({ id: users.id })
             .from(users)
             .where(eq(users.clerkId, ctx.clerkUserId));
           if (user) {
+            language ??= await getPreferredLanguage(user.id);
             const personalized = await db.execute(sql`
               WITH latest_snapshot AS (
                 SELECT MAX(${twitchUserRecommendationRecords.collectedAt}) AS collected_at
@@ -274,6 +323,7 @@ export const appRouter = createTRPCRouter({
                   ${twitchCurrentStreams.id} IS NOT NULL
                   OR ${twitchUserRecommendationRecords.collectedAt} > ${publicStreamStaleBefore()}
                 )
+                ${language ? sql`AND LOWER(${twitchUserRecommendationRecords.payload}->>'language') = ${language}` : sql``}
               ORDER BY COALESCE((${twitchUserRecommendationRecords.payload}->>'recommendation_score')::double precision, 0) DESC
               LIMIT ${first}
             `);
@@ -285,7 +335,12 @@ export const appRouter = createTRPCRouter({
                 const fillStreams = await db
                   .select()
                   .from(twitchCurrentStreams)
-                  .where(gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()))
+                  .where(and(
+                    gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()),
+                    ...(language
+                      ? [sql`LOWER(${twitchCurrentStreams.payload}->>'language') = ${language}`]
+                      : []),
+                  ))
                   .orderBy(desc(twitchCurrentStreams.viewerCount))
                   .limit(first);
                 const seenIds = new Set(personalizedStreams.map((stream) => stream.id));
@@ -307,7 +362,12 @@ export const appRouter = createTRPCRouter({
         const currentStreams = await db
           .select()
           .from(twitchCurrentStreams)
-          .where(gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()))
+          .where(and(
+            gt(twitchCurrentStreams.lastSeenAt, publicStreamStaleBefore()),
+            ...(language
+              ? [sql`LOWER(${twitchCurrentStreams.payload}->>'language') = ${language}`]
+              : []),
+          ))
           .orderBy(desc(twitchCurrentStreams.viewerCount))
           .limit(first);
 
@@ -325,6 +385,7 @@ export const appRouter = createTRPCRouter({
             SELECT MAX(${twitchRecommendationRecords.collectedAt}) AS collected_at
             FROM ${twitchRecommendationRecords}
             WHERE ${twitchRecommendationRecords.dataset} = 'embedding_top_50'
+              ${language ? sql`AND LOWER(${twitchRecommendationRecords.payload}->>'language') = ${language}` : sql``}
           )
           SELECT ${twitchRecommendationRecords.payload} AS payload
           FROM ${twitchRecommendationRecords}
