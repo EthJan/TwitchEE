@@ -40,7 +40,7 @@ export const MainSection = () => {
     const [sortDescending, setSortDescending] = useState(true);
     const visibleItems = items.filter((item) => !item.auth || isSignedIn);
     const followedChannelsQuery = trpc.twitch.followedChannels.useQuery(
-        { first: 100 },
+        { first: 100, allPages: true },
         { enabled: isSignedIn === true, retry: false },
     );
     const followedStreamsQuery = trpc.twitch.followedStreams.useQuery(

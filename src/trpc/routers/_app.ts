@@ -485,7 +485,11 @@ export const appRouter = createTRPCRouter({
         }
       }),
     followedChannels: protectedProcedure
-      .input(z.object({ first: z.number().int().min(1).max(100).optional(), after: z.string().min(1).optional() }).optional())
+      .input(z.object({
+        first: z.number().int().min(1).max(100).optional(),
+        after: z.string().min(1).optional(),
+        allPages: z.boolean().optional(),
+      }).optional())
       .query(async ({ ctx, input }) => {
         const [account] = await db.select().from(twitchAccounts).where(eq(twitchAccounts.userId, ctx.user.id));
         if (!account) {
@@ -508,17 +512,37 @@ export const appRouter = createTRPCRouter({
         }
 
         try {
-          const followedChannels = await getTwitchFollowedChannels({
+          const firstPage = await getTwitchFollowedChannels({
             accessToken,
             userId: account.twitchUserId,
             first: input?.first,
             after: input?.after,
           });
-          const users = followedChannels.data.length > 0
-            ? await getTwitchUsersByIds(followedChannels.data.map((channel) => channel.broadcaster_id))
-            : { data: [] };
+          const allChannels = [...firstPage.data];
+          let cursor = firstPage.pagination.cursor;
+
+          while (input?.allPages && cursor) {
+            const nextPage = await getTwitchFollowedChannels({
+              accessToken,
+              userId: account.twitchUserId,
+              first: input.first,
+              after: cursor,
+            });
+            allChannels.push(...nextPage.data);
+            cursor = nextPage.pagination.cursor;
+          }
+
+          const followedChannels = input?.allPages
+            ? { ...firstPage, data: allChannels, pagination: {} }
+            : firstPage;
+          const userIds = followedChannels.data.map((channel) => channel.broadcaster_id);
+          const userPages = await Promise.all(
+            Array.from({ length: Math.ceil(userIds.length / 100) }, (_, index) =>
+              getTwitchUsersByIds(userIds.slice(index * 100, (index + 1) * 100)),
+            ),
+          );
           const profileImagesById = new Map(
-            users.data.map((user) => [user.id, user.profile_image_url]),
+            userPages.flatMap((page) => page.data).map((user) => [user.id, user.profile_image_url]),
           );
 
           return {
